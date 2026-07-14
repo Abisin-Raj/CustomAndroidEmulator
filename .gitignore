@@ -1,38 +1,120 @@
-# Build directories
+# =============================================================================
+# CustomAndroidEmulator — .gitignore
+# =============================================================================
+
+# ----------------------------------------------------------------------------
+# Build system
+# ----------------------------------------------------------------------------
 build/
 CMakeFiles/
 CMakeCache.txt
 CMakeConfigureLog.yaml
+cmake_install.cmake
+CTestTestfile.cmake
 *.cmake
+!CMakeLists.txt
 Makefile
 *.ninja
 .ninja_*
+install_manifest.txt
 
-# IDE specific files
+# ----------------------------------------------------------------------------
+# Compiled output
+# ----------------------------------------------------------------------------
+*.exe
+*.dll
+*.so
+*.so.*
+*.a
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.obj
+*.o
+
+# ----------------------------------------------------------------------------
+# Qt / MOC / UIC / RCC generated files
+# ----------------------------------------------------------------------------
+*_autogen/
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+*.qm
+
+# ----------------------------------------------------------------------------
+# IDE & editor
+# ----------------------------------------------------------------------------
 .vs/
+.vscode/
+.idea/
 *.user
 *.suo
 *.sln
 *.vcxproj
-*.filters
-.idea/
-.vscode/
+*.vcxproj.filters
+*.code-workspace
+.clangd/
+.cache/
+compile_commands.json
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
 
-# Local ROM storage (do not commit extracted ROMs or image files)
+# ----------------------------------------------------------------------------
+# ROM storage — extracted ROMs, large partition images, intermediate files
+# ----------------------------------------------------------------------------
 roms/
-
-# Output binaries & libraries
-*.exe
-*.dll
-*.so
-*.a
-*.lib
-*.pdb
-
-# Log files
-*.log
-logs/
+*.img
+*.dat
+*.dat.br
+*.new.dat
+*.new.dat.br
+*.transfer.list
+*.patch.dat
+*.sparse.img
+*.raw
+*.elf
+*.bin
+*.zip
+!tests/**/*.zip
 mock_rom.zip
 mock_rom2.zip
-PixelExperience_violet-13.0-20240127-0711-OFFICIAL.zip
-PixelExperience_violet-13.0-20231124-0006-OFFICIAL.img
+
+# ----------------------------------------------------------------------------
+# Kernel analysis temporaries
+# ----------------------------------------------------------------------------
+kernel.raw
+kernel.elf
+kconfig.gz
+kconfig.txt
+
+# ----------------------------------------------------------------------------
+# Log & session files
+# ----------------------------------------------------------------------------
+*.log
+logs/
+
+# ----------------------------------------------------------------------------
+# Boot session exports
+# ----------------------------------------------------------------------------
+boot_*.json
+boot_*.qemu.txt
+
+# ----------------------------------------------------------------------------
+# Temporary boot asset directories
+# ----------------------------------------------------------------------------
+_tmp_boot/
+
+# ----------------------------------------------------------------------------
+# Python / scripts
+# ----------------------------------------------------------------------------
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/

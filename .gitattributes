@@ -1,0 +1,50 @@
+# =============================================================================
+# CustomAndroidEmulator — .gitattributes
+# Normalize line endings: store LF in repo, checkout as native on each OS.
+# =============================================================================
+
+# Default: normalize everything to LF in the repo
+* text=auto eol=lf
+
+# Force LF for source/script/config files regardless of platform
+*.cpp        text eol=lf
+*.h          text eol=lf
+*.c          text eol=lf
+*.hpp        text eol=lf
+*.cmake      text eol=lf
+CMakeLists.txt text eol=lf
+*.md         text eol=lf
+*.json       text eol=lf
+*.txt        text eol=lf
+*.sh         text eol=lf
+*.py         text eol=lf
+*.rc         text eol=lf
+*.xml        text eol=lf
+*.yaml       text eol=lf
+*.yml        text eol=lf
+.gitignore   text eol=lf
+.gitattributes text eol=lf
+
+# Windows-specific scripts use CRLF on checkout
+*.bat        text eol=crlf
+*.ps1        text eol=crlf
+*.cmd        text eol=crlf
+
+# Binary files — never touch line endings
+*.exe        binary
+*.dll        binary
+*.so         binary
+*.a          binary
+*.lib        binary
+*.pdb        binary
+*.img        binary
+*.zip        binary
+*.br         binary
+*.gz         binary
+*.bin        binary
+*.elf        binary
+*.png        binary
+*.jpg        binary
+*.jpeg       binary
+*.ico        binary
+*.webp       binary
