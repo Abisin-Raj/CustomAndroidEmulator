@@ -22,6 +22,10 @@ target_link_libraries(virtual_machine PUBLIC
     models
     boot_assets
     qemu_backend
+    boot_events
+    boot_session
+    kernel_runtime
+    boot_pipeline
     Qt6::Core
     nlohmann_json::nlohmann_json
 )

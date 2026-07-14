@@ -5,20 +5,30 @@
 #include "qemu_backend/qemu_detector.h"
 #include "qemu_backend/qemu_arguments.h"
 #include "qemu_backend/qemu_launcher.h"
+#include "boot_events/event_dispatcher.h"
+#include "boot_pipeline/boot_pipeline_manager.h"
+#include "kernel_runtime/kernel_commandline.h"
 #include "core/logger.h"
+#include "core/utils.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
 
 VmManager::VmManager(QObject* parent)
     : QObject(parent)
     , m_launcher(new QemuLauncher(this))
+    , m_dispatcher(new EventDispatcher(this))
+    , m_pipelineManager(new BootPipelineManager(m_dispatcher))
     , m_isRunning(false) {
+    m_pipelineManager->initializeDefaultDetectors();
+
     connect(m_launcher, &QemuLauncher::stateChanged, this, &VmManager::onLauncherStateChanged);
     connect(m_launcher, &QemuLauncher::finished, this, &VmManager::onLauncherFinished);
+    connect(m_launcher, &QemuLauncher::logLineRead, this, &VmManager::onLogLineRead);
 }
 
 VmManager::~VmManager() {
     stopVm();
+    delete m_pipelineManager;
 }
 
 bool VmManager::startVm(const std::string& romName, const std::filesystem::path& romDir) {
@@ -107,10 +117,21 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
         hasRamdisk ? tempRamdiskPath.string() : ""
     );
 
+    // Apply kernel runtime commandline improvements
+    params.cmdline = KernelCommandLine::build(params.cmdline);
+
     QStringList args = QemuArguments::build(params);
 
-    // 5. Spawn QEMU
+    // Reset boot pipeline context and session configurations
+    m_pipelineManager->setRomName(romName);
+    m_pipelineManager->getSession() = BootSession();
+    m_pipelineManager->getSession().setRomName(romName);
+    m_fullLogText.clear();
+    m_activeRomName = romName;
     m_activeRomDir = romDir;
+
+    // 5. Spawn QEMU
+    m_timer.start();
     if (!m_launcher->start(qemuPath, args)) {
         LOG_QEMU_ERROR("VmManager: Process launch failed. Cleaning up temporary folders...");
         BootAssetLoader::cleanTempAssets(tempDir);
@@ -119,6 +140,7 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
 
     m_isRunning = true;
     emit vmStateChanged(true);
+    m_dispatcher->dispatchStateChange(BootState::VM_STARTING);
     return true;
 }
 
@@ -130,10 +152,20 @@ bool VmManager::isVmRunning() const {
     return m_isRunning && m_launcher->isRunning();
 }
 
+void VmManager::onLogLineRead(const QString& line) {
+    double elapsed = m_timer.elapsed() / 1000.0;
+    m_fullLogText += line + "\n";
+    m_pipelineManager->processLogLine(line.toStdString(), elapsed);
+}
+
 void VmManager::onLauncherStateChanged(bool running) {
     if (!running) {
         LOG_QEMU_INFO("VmManager: VM execution finished. Releasing active session locks...");
         
+        // Export boot session statistics logs
+        std::filesystem::path logsDir = core::getExecutableDir() / "logs";
+        m_pipelineManager->getSession().writeLogFile(logsDir.string(), m_fullLogText.toStdString());
+
         // Clean up temporary boot files
         if (!m_activeRomDir.empty()) {
             std::filesystem::path tempDir = m_activeRomDir / "_tmp_boot";

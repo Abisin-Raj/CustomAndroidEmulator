@@ -1,9 +1,12 @@
 #pragma once
 #include <QObject>
+#include <QElapsedTimer>
 #include <filesystem>
 #include <string>
 
 class QemuLauncher;
+class EventDispatcher;
+class BootPipelineManager;
 
 class VmManager : public QObject {
     Q_OBJECT
@@ -13,8 +16,6 @@ public:
 
     /**
      * @brief Launches the QEMU virtual machine for the specified ROM name.
-     *        Carves the boot image offsets on-the-fly, starts QEMU as a child,
-     *        and sets up cleanup handlers.
      */
     bool startVm(const std::string& romName, const std::filesystem::path& romDir);
 
@@ -28,6 +29,9 @@ public:
      */
     bool isVmRunning() const;
 
+    EventDispatcher* getDispatcher() const { return m_dispatcher; }
+    BootPipelineManager* getPipelineManager() const { return m_pipelineManager; }
+
 signals:
     void vmStateChanged(bool running);
     void vmFinished(int exitCode);
@@ -35,9 +39,17 @@ signals:
 private slots:
     void onLauncherStateChanged(bool running);
     void onLauncherFinished(int exitCode);
+    void onLogLineRead(const QString& line);
 
 private:
-    QemuLauncher* m_launcher;
+    QemuLauncher* m_launcher = nullptr;
+    EventDispatcher* m_dispatcher = nullptr;
+    BootPipelineManager* m_pipelineManager = nullptr;
+
     std::filesystem::path m_activeRomDir;
-    bool m_isRunning;
+    std::string m_activeRomName;
+    bool m_isRunning = false;
+
+    QElapsedTimer m_timer;
+    QString m_fullLogText;
 };
