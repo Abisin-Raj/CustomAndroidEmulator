@@ -163,6 +163,7 @@ BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romN
         config["dynamic_partitions"] = (hasSuperImg || hasPayloadBin);
         config["verified_boot"] = avbEnabled;
         config["vm_profile"] = report.vmProfile;
+        config["cmdline"] = bootInfo.cmdline;
 
         std::filesystem::path configPath = romDir / "boot_config.json";
         std::ofstream out(configPath);

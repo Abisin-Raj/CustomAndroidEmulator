@@ -31,6 +31,9 @@ QemuConfigParameters VmConfigurationBuilder::build(
             if (j.contains("vm_args")) {
                 params.extraArgs = j.value("vm_args", "");
             }
+            if (j.contains("cmdline")) {
+                params.cmdline = j.value("cmdline", "");
+            }
         } catch (const std::exception& e) {
             LOG_BOOT_ERROR("VmConfigurationBuilder: Failed to parse boot_config.json: {}", e.what());
         }

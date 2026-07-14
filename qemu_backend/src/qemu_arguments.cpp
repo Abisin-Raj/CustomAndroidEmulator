@@ -21,8 +21,13 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
     }
 
     // Redirect serial logs to stdio, and tell guest kernel to output to the virt serial controller
+    if (!params.cmdline.empty()) {
+        args << "-append" << QString::fromStdString(params.cmdline);
+    } else {
+        args << "-append" << "console=ttyAMA0 earlycon=pl011,0x09000000 printk.devkmsg=on";
+    }
+
     args << "-serial" << "mon:stdio";
-    args << "-append" << "console=ttyAMA0 earlycon=pl011,0x09000000 printk.devkmsg=on";
 
     if (!params.extraArgs.empty()) {
         QString extra = QString::fromStdString(params.extraArgs);
