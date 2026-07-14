@@ -18,6 +18,7 @@ public:
     void setFinalResult(const std::string& result) { m_finalResult = result; }
     void setLastState(const std::string& state) { m_lastState = state; }
     void setPanicReason(const std::string& reason) { m_panicReason = reason; }
+    void setQemuCommandLine(const std::string& cmd) { m_qemuCommandLine = cmd; }
 
     // Getters
     const std::string& getRomName() const { return m_romName; }
@@ -26,6 +27,7 @@ public:
     const std::string& getFinalResult() const { return m_finalResult; }
     const std::string& getLastState() const { return m_lastState; }
     const std::string& getPanicReason() const { return m_panicReason; }
+    const std::string& getQemuCommandLine() const { return m_qemuCommandLine; }
     const std::vector<BootEvent>& getTimeline() const { return m_timeline; }
     
     int getInfoCount() const { return m_infoCount; }
@@ -36,6 +38,7 @@ public:
     // Export boot session logs
     void writeLogFile(const std::string& logsDir, const std::string& fullLogText) const;
     void writeJsonSummary(const std::string& logsDir) const;
+    void writeQemuCmdFile(const std::string& logsDir) const;
     
     // Generate summary statistics text block
     std::string generateStats() const;
@@ -47,6 +50,7 @@ private:
     std::string m_finalResult = "Unknown";
     std::string m_lastState = "VM_STARTING";
     std::string m_panicReason = "";
+    std::string m_qemuCommandLine;
     std::vector<BootEvent> m_timeline;
 
     int m_infoCount = 0;

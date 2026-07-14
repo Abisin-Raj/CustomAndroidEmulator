@@ -149,6 +149,45 @@ void BootSession::writeJsonSummary(const std::string& logsDir) const {
     }
 }
 
+void BootSession::writeQemuCmdFile(const std::string& logsDir) const {
+    try {
+        if (!std::filesystem::exists(logsDir)) {
+            std::filesystem::create_directories(logsDir);
+        }
+
+        auto now = std::chrono::system_clock::now();
+        auto timeT = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+#if defined(_WIN32)
+        localtime_s(&tm, &timeT);
+#else
+        localtime_r(&timeT, &tm);
+#endif
+
+        std::stringstream fileSS;
+        std::string cleanName = m_romName;
+        for (char& c : cleanName) {
+            if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
+                c = '_';
+            }
+        }
+
+        char fileTimeStr[64];
+        std::strftime(fileTimeStr, sizeof(fileTimeStr), "%Y-%m-%d_%H-%M-%S", &tm);
+
+        fileSS << "boot_" << cleanName << "_" << fileTimeStr << ".qemu.txt";
+        std::filesystem::path filePath = std::filesystem::path(logsDir) / fileSS.str();
+
+        std::ofstream out(filePath);
+        if (out) {
+            out << m_qemuCommandLine << "\n";
+            out.close();
+        }
+    } catch (...) {
+        // Suppress and fallback
+    }
+}
+
 std::string BootSession::generateStats() const {
     std::stringstream ss;
     ss << "ROM Name:          " << m_romName << "\n"

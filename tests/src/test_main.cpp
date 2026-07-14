@@ -334,16 +334,24 @@ void testBootPipelineManager() {
     manager.getSession().setFinalResult("Success");
     manager.getSession().setDuration(4.50);
     manager.getSession().writeJsonSummary("test_logs_dir");
+
+    manager.getSession().setQemuCommandLine("qemu-system-aarch64 -cpu cortex-a53");
+    TEST_ASSERT(manager.getSession().getQemuCommandLine() == "qemu-system-aarch64 -cpu cortex-a53", "Qemu cmdline must match");
+    manager.getSession().writeQemuCmdFile("test_logs_dir");
     
-    // Ensure file exists
+    // Ensure files exist
     bool jsonFileFound = false;
+    bool qemuFileFound = false;
     for (const auto& entry : std::filesystem::directory_iterator("test_logs_dir")) {
         if (entry.path().extension() == ".json") {
             jsonFileFound = true;
-            break;
+        }
+        if (entry.path().string().find(".qemu.txt") != std::string::npos) {
+            qemuFileFound = true;
         }
     }
     TEST_ASSERT(jsonFileFound, "JSON summary log file must be exported");
+    TEST_ASSERT(qemuFileFound, "QEMU command line file must be exported");
     std::filesystem::remove_all("test_logs_dir");
 }
 

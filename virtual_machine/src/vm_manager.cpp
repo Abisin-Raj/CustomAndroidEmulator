@@ -126,6 +126,13 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
     m_pipelineManager->setRomName(romName);
     m_pipelineManager->getSession() = BootSession();
     m_pipelineManager->getSession().setRomName(romName);
+
+    std::string fullCmd = qemuPath;
+    for (const auto& arg : args) {
+        fullCmd += " " + arg.toStdString();
+    }
+    m_pipelineManager->getSession().setQemuCommandLine(fullCmd);
+
     m_fullLogText.clear();
     m_activeRomName = romName;
     m_activeRomDir = romDir;
@@ -206,6 +213,7 @@ void VmManager::onLauncherStateChanged(bool running) {
 
         m_pipelineManager->getSession().writeLogFile(logsDir.string(), m_fullLogText.toStdString());
         m_pipelineManager->getSession().writeJsonSummary(logsDir.string());
+        m_pipelineManager->getSession().writeQemuCmdFile(logsDir.string());
 
         // Clean up temporary boot files
         if (!m_activeRomDir.empty()) {
