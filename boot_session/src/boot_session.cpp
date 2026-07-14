@@ -88,6 +88,67 @@ void BootSession::writeLogFile(const std::string& logsDir, const std::string& fu
     }
 }
 
+void BootSession::writeJsonSummary(const std::string& logsDir) const {
+    try {
+        if (!std::filesystem::exists(logsDir)) {
+            std::filesystem::create_directories(logsDir);
+        }
+
+        auto now = std::chrono::system_clock::now();
+        auto timeT = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+#if defined(_WIN32)
+        localtime_s(&tm, &timeT);
+#else
+        localtime_r(&timeT, &tm);
+#endif
+
+        std::stringstream fileSS;
+        std::string cleanName = m_romName;
+        for (char& c : cleanName) {
+            if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
+                c = '_';
+            }
+        }
+
+        char timeStr[64];
+        std::strftime(timeStr, sizeof(timeStr), "%Y-%m-%dT%H:%M:%S", &tm);
+        
+        char fileTimeStr[64];
+        std::strftime(fileTimeStr, sizeof(fileTimeStr), "%Y-%m-%d_%H-%M-%S", &tm);
+
+        fileSS << "boot_" << cleanName << "_" << fileTimeStr << ".json";
+        std::filesystem::path filePath = std::filesystem::path(logsDir) / fileSS.str();
+
+        // Safe JSON string escaping for panic reason
+        std::string escapedPanic = m_panicReason;
+        std::string safePanic;
+        for (char c : escapedPanic) {
+            if (c == '"') safePanic += "\\\"";
+            else if (c == '\\') safePanic += "\\\\";
+            else if (c == '\n') safePanic += "\\n";
+            else if (c == '\r') safePanic += "\\r";
+            else if (c == '\t') safePanic += "\\t";
+            else safePanic += c;
+        }
+
+        std::ofstream out(filePath);
+        if (out) {
+            out << "{\n"
+                << "  \"rom\": \"" << m_romName << "\",\n"
+                << "  \"timestamp\": \"" << timeStr << "\",\n"
+                << "  \"result\": \"" << m_finalResult << "\",\n"
+                << "  \"last_state\": \"" << m_lastState << "\",\n"
+                << "  \"duration_ms\": " << static_cast<long long>(m_durationSeconds * 1000.0) << ",\n"
+                << "  \"panic_reason\": \"" << safePanic << "\"\n"
+                << "}\n";
+            out.close();
+        }
+    } catch (...) {
+        // Suppress and fallback
+    }
+}
+
 std::string BootSession::generateStats() const {
     std::stringstream ss;
     ss << "ROM Name:          " << m_romName << "\n"

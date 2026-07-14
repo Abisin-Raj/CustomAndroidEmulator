@@ -324,7 +324,27 @@ void testBootPipelineManager() {
     // Verify session statistics export
     auto stats = manager.getSession().generateStats();
     TEST_ASSERT(stats.find("Boot Duration:     4.50") != std::string::npos, "Stats duration must match");
-    TEST_ASSERT(manager.getSession().getFinalResult() == "Success", "Result must be Success");
+    
+    manager.getSession().setLastState("BOOT_COMPLETE");
+    TEST_ASSERT(manager.getSession().getLastState() == "BOOT_COMPLETE", "Last state must be BOOT_COMPLETE");
+
+    manager.getSession().setPanicReason("VFS panic");
+    TEST_ASSERT(manager.getSession().getPanicReason() == "VFS panic", "Panic reason must be VFS panic");
+
+    manager.getSession().setFinalResult("Success");
+    manager.getSession().setDuration(4.50);
+    manager.getSession().writeJsonSummary("test_logs_dir");
+    
+    // Ensure file exists
+    bool jsonFileFound = false;
+    for (const auto& entry : std::filesystem::directory_iterator("test_logs_dir")) {
+        if (entry.path().extension() == ".json") {
+            jsonFileFound = true;
+            break;
+        }
+    }
+    TEST_ASSERT(jsonFileFound, "JSON summary log file must be exported");
+    std::filesystem::remove_all("test_logs_dir");
 }
 
 int main() {

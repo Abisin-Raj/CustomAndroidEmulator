@@ -164,7 +164,48 @@ void VmManager::onLauncherStateChanged(bool running) {
         
         // Export boot session statistics logs
         std::filesystem::path logsDir = core::getExecutableDir() / "logs";
+        
+        // Populate final session results and metadata
+        double elapsed = m_timer.elapsed() / 1000.0;
+        m_pipelineManager->getSession().setDuration(elapsed);
+        
+        BootState finalState = m_pipelineManager->getContext().currentState;
+        std::string stateStr = "VM_STARTING";
+        switch (finalState) {
+            case BootState::VM_STARTING:         stateStr = "VM_STARTING"; break;
+            case BootState::KERNEL_LOADING:      stateStr = "KERNEL_LOADING"; break;
+            case BootState::KERNEL_RUNNING:      stateStr = "KERNEL_RUNNING"; break;
+            case BootState::USERSPACE_STARTING:  stateStr = "USERSPACE_STARTING"; break;
+            case BootState::SYSTEM_SERVICES:     stateStr = "SYSTEM_SERVICES"; break;
+            case BootState::BOOT_COMPLETE:       stateStr = "BOOT_COMPLETE"; break;
+            case BootState::EMULATION_FAILED:     stateStr = "EMULATION_FAILED"; break;
+        }
+        m_pipelineManager->getSession().setLastState(stateStr);
+
+        std::string outcome = "Unknown";
+        if (finalState == BootState::BOOT_COMPLETE) {
+            outcome = "Success";
+        } else if (m_pipelineManager->getSession().getPanicCount() > 0) {
+            outcome = "Kernel Panic";
+        } else {
+            outcome = "Failed / Closed early";
+        }
+        m_pipelineManager->getSession().setFinalResult(outcome);
+
+        std::string panicReason = "";
+        for (const auto& ev : m_pipelineManager->getSession().getTimeline()) {
+            if (ev.type == BootEventType::KernelPanic) {
+                panicReason = ev.details;
+                if (ev.metadata.count("suggested_cause")) {
+                    panicReason += " (" + ev.metadata.at("suggested_cause") + ")";
+                }
+                break;
+            }
+        }
+        m_pipelineManager->getSession().setPanicReason(panicReason);
+
         m_pipelineManager->getSession().writeLogFile(logsDir.string(), m_fullLogText.toStdString());
+        m_pipelineManager->getSession().writeJsonSummary(logsDir.string());
 
         // Clean up temporary boot files
         if (!m_activeRomDir.empty()) {
