@@ -11,4 +11,8 @@ target_link_libraries(run_tests PRIVATE
     boot_assets
     qemu_backend
     virtual_machine
+    boot_events
+    boot_session
+    kernel_runtime
+    boot_pipeline
 )

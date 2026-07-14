@@ -9,6 +9,14 @@
 #include "boot_assets/boot_asset_loader.h"
 #include "virtual_machine/vm_profile.h"
 #include "qemu_backend/qemu_arguments.h"
+#include "boot_events/event_types.h"
+#include "boot_events/event_dispatcher.h"
+#include "boot_session/boot_session.h"
+#include "kernel_runtime/kernel_commandline.h"
+#include "boot_pipeline/boot_pipeline_manager.h"
+#include "boot_pipeline/kernel_detector.h"
+#include "boot_pipeline/init_detector.h"
+#include "boot_pipeline/panic_detector.h"
 #include <iostream>
 #include <fstream>
 #include <cassert>
@@ -229,6 +237,96 @@ void testQemuArguments() {
     TEST_ASSERT(args.contains("-kernel"), "Arguments must contain -kernel");
 }
 
+void testKernelCommandLine() {
+    std::string base = "console=ttyS0 quiet";
+    std::string build = KernelCommandLine::build(base);
+    TEST_ASSERT(build.find("console=ttyAMA0") == std::string::npos, "Should respect existing console setting if console= is present");
+    TEST_ASSERT(build.find("earlycon=pl011,0x09000000") != std::string::npos, "Should append earlycon argument");
+    TEST_ASSERT(build.find("printk.devkmsg=on") != std::string::npos, "Should append printk argument");
+
+    std::string emptyBase = "";
+    std::string builtEmpty = KernelCommandLine::build(emptyBase);
+    TEST_ASSERT(builtEmpty.find("console=ttyAMA0") != std::string::npos, "Should add console argument if base is empty");
+}
+
+void testEventDispatcher() {
+    EventDispatcher dispatcher;
+    bool eventFired = false;
+    bool stateFired = false;
+
+    QObject::connect(&dispatcher, &EventDispatcher::eventDispatched, [&eventFired](const BootEvent& ev) {
+        if (ev.type == BootEventType::CpuOnline) {
+            eventFired = true;
+        }
+    });
+
+    QObject::connect(&dispatcher, &EventDispatcher::stateChanged, [&stateFired](BootState state) {
+        if (state == BootState::KERNEL_RUNNING) {
+            stateFired = true;
+        }
+    });
+
+    BootEvent ev;
+    ev.type = BootEventType::CpuOnline;
+    ev.severity = EventSeverity::Info;
+    ev.details = "CPU0 online";
+    ev.confidence = 1.0;
+    ev.elapsedSeconds = 0.5;
+
+    dispatcher.dispatchEvent(ev);
+    dispatcher.dispatchStateChange(BootState::KERNEL_RUNNING);
+
+    TEST_ASSERT(eventFired, "eventDispatched signal should fire successfully");
+    TEST_ASSERT(stateFired, "stateChanged signal should fire successfully");
+}
+
+void testPanicDetector() {
+    PanicDetector detector;
+    DetectorContext ctx;
+    ctx.elapsedSeconds = 2.4;
+
+    std::string line1 = "[    2.400000] CPU: 0 PID: 1 Comm: swapper/0 Not tainted";
+    auto events1 = detector.processLine(line1, ctx);
+    TEST_ASSERT(events1.empty(), "Metadata collection should not trigger panic event immediately");
+
+    std::string line2 = "[    2.405000] Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block(0,0)";
+    auto events2 = detector.processLine(line2, ctx);
+    TEST_ASSERT(events2.size() == 1, "Panic line must trigger panic event");
+    TEST_ASSERT(events2[0].type == BootEventType::KernelPanic, "Event type must be KernelPanic");
+    TEST_ASSERT(events2[0].severity == EventSeverity::Critical, "Severity must be Critical");
+    TEST_ASSERT(events2[0].metadata["pid"] == "1", "PID metadata should be parsed successfully");
+    TEST_ASSERT(events2[0].metadata["process"] == "swapper/0", "Process metadata should be parsed successfully");
+    TEST_ASSERT(events2[0].metadata["suggested_cause"].find("Missing root filesystem") != std::string::npos, "Panic classification suggest cause correctly");
+}
+
+void testBootPipelineManager() {
+    EventDispatcher dispatcher;
+    BootPipelineManager manager(&dispatcher);
+    manager.initializeDefaultDetectors();
+    manager.setRomName("test_pipeline_rom");
+
+    // 1. Initial State
+    TEST_ASSERT(manager.getContext().currentState == BootState::VM_STARTING, "Initial state should be VM_STARTING");
+
+    // 2. Feed Linux Version log
+    manager.processLogLine("[    0.050000] Linux version 4.19.191-gki (android@google.com)", 0.05);
+    TEST_ASSERT(manager.getContext().currentState == BootState::KERNEL_RUNNING, "State should transition to KERNEL_RUNNING");
+    TEST_ASSERT(manager.getContext().kernelVersion.find("Linux version 4.19.191-gki") != std::string::npos, "Should record kernel version");
+
+    // 3. Feed Init Started
+    manager.processLogLine("[    1.200000] init: init first stage started!", 1.20);
+    TEST_ASSERT(manager.getContext().currentState == BootState::USERSPACE_STARTING, "State should transition to USERSPACE_STARTING");
+
+    // 4. Feed Property Completed
+    manager.processLogLine("[    4.500000] init: property_set(\"sys.boot_completed\", \"1\")", 4.50);
+    TEST_ASSERT(manager.getContext().currentState == BootState::BOOT_COMPLETE, "State should transition to BOOT_COMPLETE");
+
+    // Verify session statistics export
+    auto stats = manager.getSession().generateStats();
+    TEST_ASSERT(stats.find("Boot Duration:     4.50") != std::string::npos, "Stats duration must match");
+    TEST_ASSERT(manager.getSession().getFinalResult() == "Success", "Result must be Success");
+}
+
 int main() {
     core::initLogger();
     std::cout << "======================================\n";
@@ -243,6 +341,10 @@ int main() {
     testBootAssetLoader();
     testVmProfile();
     testQemuArguments();
+    testKernelCommandLine();
+    testEventDispatcher();
+    testPanicDetector();
+    testBootPipelineManager();
 
     std::filesystem::path realRom = "PixelExperience_violet-13.0-20240127-0711-OFFICIAL.zip";
     if (std::filesystem::exists(realRom)) {
