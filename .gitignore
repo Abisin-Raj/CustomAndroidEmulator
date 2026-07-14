@@ -1,0 +1,34 @@
+# Build directories
+build/
+CMakeFiles/
+CMakeCache.txt
+CMakeConfigureLog.yaml
+*.cmake
+Makefile
+*.ninja
+.ninja_*
+
+# IDE specific files
+.vs/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.filters
+.idea/
+.vscode/
+
+# Local ROM storage (do not commit extracted ROMs or image files)
+roms/
+
+# Output binaries & libraries
+*.exe
+*.dll
+*.so
+*.a
+*.lib
+*.pdb
+
+# Log files
+*.log
+logs/
