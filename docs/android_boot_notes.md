@@ -36,3 +36,24 @@ This document acts as an engineering logbook to capture boot tests, panic logs, 
   ```
 * **Suggested Cause**: AOSP `/init` binary exited early or failed execution checks (likely due to slot suffix expectations or SELinux policies setup).
 * **Next Action**: Map slot variables in kernel commandline options inside Phase 6 and trace early mount instructions.
+
+---
+
+## Primary Target Reference ROM
+
+To maintain focus, the following ROM package is selected as our primary target baseline for compatibility improvements:
+* **Package**: `PixelExperience_violet-13.0-20240127-0711-OFFICIAL`
+* **Platform version**: Android 13
+* **Validation target**: Progress this baseline through the milestones list sequentially.
+
+---
+
+## Project Milestones
+
+Instead of generic broad phases, we measure emulator progress by 5 concrete functional milestones:
+
+1. **Milestone 1**: QEMU launches successfully, ARM64 kernel executes early setup code. (✓ **Achieved**)
+2. **Milestone 2**: Kernel reaches `start_kernel()` and registers virtual timers/interrupts. (✓ **Achieved**)
+3. **Milestone 3**: `/init` executes (userspace starts up). (✗ **Pending** - blocked by VFS mount)
+4. **Milestone 4**: Core Android system services begin (HALs, service manager, binder). (✗ **Pending**)
+5. **Milestone 5**: Android launcher GUI home screen rendering completes. (✗ **Pending**)
