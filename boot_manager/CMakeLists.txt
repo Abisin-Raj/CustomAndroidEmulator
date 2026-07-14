@@ -12,6 +12,7 @@ target_link_libraries(boot_manager PUBLIC
     core
     models
     image_parser
+    image_converter
     Qt6::Core
     nlohmann_json::nlohmann_json
 )

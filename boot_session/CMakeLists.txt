@@ -13,3 +13,4 @@ target_link_libraries(boot_session PUBLIC
     models
     boot_events
 )
+

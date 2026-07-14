@@ -3,6 +3,8 @@
 #include "image_parser/vbmeta_parser.h"
 #include "image_parser/payload_parser.h"
 #include "image_parser/super_parser.h"
+#include "image_converter/brotli_decompressor.h"
+#include "image_converter/dat_image_builder.h"
 #include "core/logger.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -55,6 +57,9 @@ BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romN
     bool hasVendorBootImg = std::filesystem::exists(vendorBootImgPath);
     bool hasSystemNewDatBr = std::filesystem::exists(romDir / "system.new.dat.br");
     bool hasSystemNewDat = std::filesystem::exists(romDir / "system.new.dat");
+    bool hasVendorNewDatBr = std::filesystem::exists(romDir / "vendor.new.dat.br");
+    bool hasSystemTransferList = std::filesystem::exists(romDir / "system.transfer.list");
+    bool hasVendorTransferList = std::filesystem::exists(romDir / "vendor.transfer.list");
 
     BootImgInfo bootInfo;
     uint64_t kernelOffset = 0;
@@ -105,9 +110,10 @@ BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romN
         report.recommendations.push_back("A/B layout detected. Ensure slot selection matches active boot target.");
     }
 
-    if (hasSystemNewDatBr) {
-        report.warnings.push_back("Brotli-compressed system partition (system.new.dat.br) detected.");
-        report.recommendations.push_back("System partition will be decompressed dynamically in a later phase.");
+    if (hasSystemNewDatBr && hasSystemTransferList) {
+        report.recommendations.push_back("Brotli OTA format detected. Will reconstruct system.img and vendor.img.");
+    } else if (hasSystemNewDatBr) {
+        report.warnings.push_back("system.new.dat.br found but system.transfer.list is missing.");
     }
 
     if (hasSystemNewDat) {
@@ -150,7 +156,91 @@ BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romN
         LOG_BOOT_INFO("ROM '{}' successfully passed all boot checks. Ready for virtualization.", romName);
     }
 
-    // 5. Write boot_config.json (VM profile description) if bootable checks succeeded
+    // 5. Reconstruct system/vendor images from Brotli OTA format
+    std::string systemImagePath;
+    std::string systemImageSha256;
+    bool        systemImageVerified = false;
+    std::string vendorImagePath;
+    std::string vendorImageSha256;
+    bool        vendorImageVerified = false;
+
+    if (report.status != "Not Bootable" && hasSystemNewDatBr && hasSystemTransferList) {
+        auto sysNewDat = romDir / "system.new.dat";
+        auto sysImg    = romDir / "system.img";
+        auto sysTransfer = romDir / "system.transfer.list";
+
+        if (!std::filesystem::exists(sysImg)) {
+            LOG_BOOT_INFO("Decompressing system.new.dat.br...");
+            std::string err;
+            bool ok = BrotliDecompressor::decompress(romDir / "system.new.dat.br", sysNewDat, nullptr, &err);
+            if (!ok) {
+                LOG_BOOT_ERROR("Brotli decompression failed: {}", err);
+                report.warnings.push_back("system.new.dat.br decompression failed: " + err);
+            } else {
+                LOG_BOOT_INFO("Reconstructing system.img from transfer list...");
+                ok = DatImageBuilder::build(sysNewDat, sysTransfer, sysImg, nullptr, &err);
+                if (!ok) {
+                    LOG_BOOT_ERROR("system.img reconstruction failed: {}", err);
+                    report.warnings.push_back("system.img reconstruction failed: " + err);
+                } else {
+                    // Remove intermediate .new.dat to save disk space
+                    std::filesystem::remove(sysNewDat);
+                    auto vr = DatImageBuilder::verify(sysImg);
+                    systemImageVerified = vr.isValidExt4;
+                    systemImageSha256   = vr.sha256;
+                    systemImagePath     = "system.img";
+                    LOG_BOOT_INFO("system.img reconstructed: valid_ext4={}, sha256={}",
+                                  vr.isValidExt4 ? "true" : "false", vr.sha256.substr(0, 16) + "...");
+                    if (!vr.isValidExt4) {
+                        report.warnings.push_back("system.img reconstruction completed but ext4 magic check failed.");
+                    }
+                }
+            }
+        } else {
+            // Image already reconstructed from a previous install
+            auto vr = DatImageBuilder::verify(sysImg);
+            systemImageVerified = vr.isValidExt4;
+            systemImageSha256   = vr.sha256;
+            systemImagePath     = "system.img";
+            LOG_BOOT_INFO("system.img already exists: valid_ext4={}", vr.isValidExt4 ? "true" : "false");
+        }
+
+        // Repeat for vendor
+        if (hasVendorNewDatBr && hasVendorTransferList) {
+            auto vendNewDat  = romDir / "vendor.new.dat";
+            auto vendImg     = romDir / "vendor.img";
+            auto vendTransfer = romDir / "vendor.transfer.list";
+
+            if (!std::filesystem::exists(vendImg)) {
+                LOG_BOOT_INFO("Decompressing vendor.new.dat.br...");
+                std::string err;
+                bool ok = BrotliDecompressor::decompress(romDir / "vendor.new.dat.br", vendNewDat, nullptr, &err);
+                if (ok) {
+                    ok = DatImageBuilder::build(vendNewDat, vendTransfer, vendImg, nullptr, &err);
+                    if (ok) {
+                        std::filesystem::remove(vendNewDat);
+                        auto vr = DatImageBuilder::verify(vendImg);
+                        vendorImageVerified = vr.isValidExt4;
+                        vendorImageSha256   = vr.sha256;
+                        vendorImagePath     = "vendor.img";
+                        LOG_BOOT_INFO("vendor.img reconstructed: valid_ext4={}, sha256={}",
+                                      vr.isValidExt4 ? "true" : "false", vr.sha256.substr(0, 16) + "...");
+                    } else {
+                        LOG_BOOT_WARN("vendor.img reconstruction failed: {}", err);
+                    }
+                } else {
+                    LOG_BOOT_WARN("vendor.new.dat.br decompression failed: {}", err);
+                }
+            } else {
+                auto vr = DatImageBuilder::verify(vendImg);
+                vendorImageVerified = vr.isValidExt4;
+                vendorImageSha256   = vr.sha256;
+                vendorImagePath     = "vendor.img";
+            }
+        }
+    }
+
+    // 6. Write boot_config.json
     if (report.status != "Not Bootable") {
         nlohmann::json config;
         config["version"] = 1;
@@ -159,11 +249,22 @@ BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romN
         config["kernel_size"] = bootInfo.kernelSize;
         config["ramdisk_offset"] = ramdiskOffset;
         config["ramdisk_size"] = bootInfo.ramdiskSize;
-        config["architecture"] = bootInfo.headerVersion >= 3 ? "arm64" : "arm64"; // Default ARM64
+        config["architecture"] = "arm64";
         config["dynamic_partitions"] = (hasSuperImg || hasPayloadBin);
         config["verified_boot"] = avbEnabled;
         config["vm_profile"] = report.vmProfile;
         config["cmdline"] = bootInfo.cmdline;
+
+        if (!systemImagePath.empty()) {
+            config["system_image"]          = systemImagePath;
+            config["system_image_sha256"]   = systemImageSha256;
+            config["system_image_verified"] = systemImageVerified;
+        }
+        if (!vendorImagePath.empty()) {
+            config["vendor_image"]          = vendorImagePath;
+            config["vendor_image_sha256"]   = vendorImageSha256;
+            config["vendor_image_verified"] = vendorImageVerified;
+        }
 
         std::filesystem::path configPath = romDir / "boot_config.json";
         std::ofstream out(configPath);
