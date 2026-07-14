@@ -1,0 +1,19 @@
+{
+    "timestamp": "2026-07-14T23:08:00Z",
+    "qemu_version": "11.0.2",
+    "target_rom": "PixelExperience_violet-13.0-20240127-0711-OFFICIAL",
+    "emulator_configuration": {
+        "binary": "C:/msys64/mingw64/bin/qemu-system-aarch64.exe",
+        "machine": "virt,secure=on,gic-version=3",
+        "cpu": "cortex-a76",
+        "memory": "2048M",
+        "nographic": true,
+        "kernel": "C:/Users/Public/temp_kernel_diag",
+        "cmdline": "androidboot.hardware=qcom androidboot.console=ttyMSM0 service_locator.enable=1 swiotlb=1 earlycon=pl011,0x09000000 loop.max_part=7 kpti=off androidboot.vbmeta.avb_version=1.0 buildvariant=userdebug console=ttyAMA0 printk.devkmsg=on nokaslr"
+    },
+    "diagnostic_results": {
+        "execution_state": "SMC Call Halt",
+        "earliest_blocker": "Qualcomm SCM Fast Call 0xC2000601",
+        "routing_destination": "EL3 Vector 0x200 (udf loop)"
+    }
+}

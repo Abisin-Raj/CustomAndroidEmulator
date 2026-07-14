@@ -80,11 +80,14 @@ The kernel expects the Qualcomm SDHCI-MSM controller declared in its Device Tree
   `/dev/block/platform/soc/7c4000.sdhci/by-name/...`
   Thus, `ro.boot.bootdevice` is explicitly **`7c4000.sdhci`** (eMMC controller at `0x07c4000`).
 
-### Reconstructed system/vendor filesystem analysis (Pending system.img generation)
-- [ ] `/vendor/etc/fstab.qcom` — primary target system fstab
-- [ ] `/vendor/etc/fstab.violet` — device-specific override (if present)
-- [ ] `/init` binary & `/init.rc` — first-stage init entrypoint & configurations
-- [ ] `ueventd.rc`, `ueventd.violet.rc` — device node creation rules
+### Reconstructed system/vendor filesystem analysis (Completed)
+- **`/vendor/etc/fstab.qcom`:** Extracted and analyzed.
+  - Mounts `/` (root) from `/dev/block/bootdevice/by-name/system` (ext4, ro, wait, avb)
+  - Mounts `/vendor` from `/dev/block/bootdevice/by-name/vendor` (ext4, ro, wait, recoveryonly)
+  - Mounts `/metadata` from `/dev/block/by-name/metadata` (ext4, wait, check, formattable, first_stage_mount)
+  - Mounts `/data` from `/dev/block/bootdevice/by-name/userdata` (f2fs, wait, check, fileencryption, etc.)
+  - SD card mmc hosts listed under `/devices/platform/soc/8804000.sdhci/mmc_host*` and `/devices/platform/soc/1da4000.ufshc_card/host*`
+- **Device-specific overrides:** `fstab.violet` is absent; default fallback to `fstab.qcom` is active.
 
 ---
 

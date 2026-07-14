@@ -122,4 +122,19 @@ __pycache__/
 venv/
 .venv/
 dtbo_extracted.dts
+kernel_extracted.dts
+kernel_extracted.dtb
+virt.dtb
+virt.dts
+extracted_fstab/
+docs/diagnostic_run_report.txt
 scratch/test_ramoops.ps1
+
+# ----------------------------------------------------------------------------
+# Allow diagnostic reports and artifact logs
+# ----------------------------------------------------------------------------
+!diagnostics/**/*.log
+!diagnostics/**/*.md
+!diagnostics/**/*.json
+!artifacts/**/*.dts
+!artifacts/**/*.dtb
