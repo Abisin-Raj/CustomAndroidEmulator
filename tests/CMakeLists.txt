@@ -16,4 +16,5 @@ target_link_libraries(run_tests PRIVATE
     boot_session
     kernel_runtime
     boot_pipeline
+    kernel_analysis
 )

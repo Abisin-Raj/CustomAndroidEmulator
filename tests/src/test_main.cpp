@@ -20,6 +20,7 @@
 #include "image_converter/brotli_decompressor.h"
 #include "image_converter/transfer_list_parser.h"
 #include "image_converter/dat_image_builder.h"
+#include "kernel_analysis/symbol_resolver.h"
 #include <iostream>
 #include <fstream>
 #include <cassert>
@@ -463,6 +464,33 @@ void testBootPipelineManager() {
     std::filesystem::remove_all("test_logs_dir");
 }
 
+void testKernelAnalysis() {
+    std::filesystem::path mapPath = "test_System.map";
+    std::ofstream out(mapPath);
+    out << "ffffff8008080000 T _text\n";
+    out << "ffffff800888a250 t qcom_scm_set_warm_boot_addr\n";
+    out << "ffffff800888a300 t other_func\n";
+    out.close();
+
+    kernel_analysis::SymbolResolver resolver;
+    bool success = resolver.loadSystemMapSymbols(mapPath.string());
+    std::filesystem::remove(mapPath);
+
+    TEST_ASSERT(success, "System.map parsing should succeed");
+    TEST_ASSERT(resolver.getSymbolCount() == 3, "Symbol count must equal 3");
+
+    // Exact matches
+    TEST_ASSERT(resolver.resolveAddress(0xffffff8008080000) == "_text+0x0", "Should resolve exact _text start");
+    TEST_ASSERT(resolver.resolveAddress(0xffffff800888a250) == "qcom_scm_set_warm_boot_addr+0x0", "Should resolve exact function start");
+
+    // Offsets
+    TEST_ASSERT(resolver.resolveAddress(0xffffff8008080010) == "_text+0x10", "Should resolve offset from _text");
+    TEST_ASSERT(resolver.resolveAddress(0xffffff800888a25c) == "qcom_scm_set_warm_boot_addr+0xc", "Should resolve offset inside SCM warm boot call");
+
+    // Address before first symbol
+    TEST_ASSERT(resolver.resolveAddress(0xffffff8008000000) == "0xffffff8008000000", "Should fall back to raw hex if before first symbol");
+}
+
 int main() {
     core::initLogger();
     std::cout << "======================================\n";
@@ -482,6 +510,7 @@ int main() {
     testEventDispatcher();
     testPanicDetector();
     testBootPipelineManager();
+    testKernelAnalysis();
 
     std::filesystem::path realRom = "PixelExperience_violet-13.0-20240127-0711-OFFICIAL.zip";
     if (std::filesystem::exists(realRom)) {
