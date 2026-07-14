@@ -11,6 +11,8 @@
 #include <QHeaderView>
 #include <QTimer>
 #include <QFormLayout>
+#include <QStatusBar>
+#include <fstream>
 #include <filesystem>
 
 MainWindow::MainWindow(QWidget* parent)

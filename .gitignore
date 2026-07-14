@@ -32,3 +32,4 @@ roms/
 # Log files
 *.log
 logs/
+mock_rom.zip

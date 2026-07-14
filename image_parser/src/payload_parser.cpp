@@ -5,6 +5,7 @@
 #include <vector>
 #include <cstring>
 #include <algorithm>
+#include <numeric>
 
 PayloadInfo PayloadParser::parse(const std::filesystem::path& path) {
     PayloadInfo info;
