@@ -17,6 +17,7 @@ public:
 signals:
     void stateChanged(bool running);
     void finished(int exitCode);
+    void logLineRead(const QString& line);
 
 private slots:
     void onReadyReadStandardOutput();

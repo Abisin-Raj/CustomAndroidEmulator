@@ -54,6 +54,7 @@ void QemuLauncher::onReadyReadStandardOutput() {
     QString line;
     while (stream.readLineInto(&line)) {
         LOG_QEMU_INFO("{}", line.toStdString());
+        emit logLineRead(line);
     }
 }
 
@@ -63,6 +64,7 @@ void QemuLauncher::onReadyReadStandardError() {
     QString line;
     while (stream.readLineInto(&line)) {
         LOG_QEMU_WARN("{}", line.toStdString());
+        emit logLineRead(line);
     }
 }
 
