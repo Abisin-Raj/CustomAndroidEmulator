@@ -138,3 +138,4 @@ scratch/test_ramoops.ps1
 !diagnostics/**/*.json
 !artifacts/**/*.dts
 !artifacts/**/*.dtb
+!reference/**/*

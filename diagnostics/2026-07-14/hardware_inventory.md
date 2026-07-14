@@ -57,3 +57,19 @@ This document registers the compatibility status and mappings of physical hardwa
   * Target: Qualcomm pin controller
   * QEMU: None
   * Status: ✗ Missing.
+
+---
+
+## 4. Platform Compatibility Confidence Score
+
+This scorecard tracks the maturity and confidence of each emulation subsystem:
+
+| Subsystem | Status | Confidence | Notes |
+|---|---|---|---|
+| **PSCI** | Compatible | 100% | Handled via generic QEMU PSCI interfaces. |
+| **GICv3** | Compatible | 100% | Matches target interrupt controller configuration. |
+| **Generic Timer** | Compatible | 100% | Architected timer registers match direct hardware. |
+| **UART** | Workaround | 80% | Redirected from GENI to PL011 using commandline patches. |
+| **Storage** | Unsupported | 0% | Qualcomm SDHCI controller is missing. |
+| **SCM** | Investigation | 25% | Secure monitor calls are trapped; dispatcher layer planned. |
+
