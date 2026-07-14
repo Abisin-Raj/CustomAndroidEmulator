@@ -1,6 +1,8 @@
 #include "mainwindow.h"
 #include "core/logger.h"
 #include "image_parser/image_parser.h"
+#include "boot_manager/boot_manager.h"
+#include "models/boot_report.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -26,9 +28,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     setupUi();
     
-    // Set first sidebar item selected
     m_sidebarList->setCurrentRow(0);
-    
     loadRomsList();
     updateDashboardStats();
 }
@@ -41,7 +41,6 @@ void MainWindow::setupUi() {
     mainLayout->setContentsMargins(10, 10, 10, 10);
     mainLayout->setSpacing(10);
 
-    // 1. Sidebar (Left navigation pane)
     m_sidebarList = new QListWidget(this);
     m_sidebarList->setFixedWidth(180);
     m_sidebarList->addItem("Dashboard");
@@ -53,7 +52,6 @@ void MainWindow::setupUi() {
     connect(m_sidebarList, &QListWidget::currentItemChanged, this, &MainWindow::onSidebarSelectionChanged);
     mainLayout->addWidget(m_sidebarList);
 
-    // 2. Stacked Widget (Right content pane)
     m_stackedWidget = new QStackedWidget(this);
     mainLayout->addWidget(m_stackedWidget);
 
@@ -63,7 +61,6 @@ void MainWindow::setupUi() {
     setupLogsPage();
     setupAboutPage();
 
-    // 3. Status Bar at the bottom
     m_statusLabel = new QLabel("Status: Ready", this);
     statusBar()->addWidget(m_statusLabel);
 }
@@ -88,9 +85,6 @@ void MainWindow::onSidebarSelectionChanged(QListWidgetItem* current, QListWidget
     }
 }
 
-// -------------------------------------------------------------
-// Page 1: Dashboard Setup
-// -------------------------------------------------------------
 void MainWindow::setupDashboardPage() {
     auto* page = new QWidget(this);
     auto* layout = new QVBoxLayout(page);
@@ -125,7 +119,7 @@ void MainWindow::setupDashboardPage() {
     gridLayout->addWidget(new QLabel("Windows x86_64", this), 2, 1);
 
     gridLayout->addWidget(new QLabel("Virtualization Engine:", this), 3, 0);
-    gridLayout->addWidget(new QLabel("QEMU Emulator Backend (Pending Phase 3)", this), 3, 1);
+    gridLayout->addWidget(new QLabel("QEMU Emulator Backend (Pending Phase 4)", this), 3, 1);
 
     layout->addWidget(infoGroupBox);
     layout->addStretch();
@@ -138,9 +132,6 @@ void MainWindow::updateDashboardStats() {
     m_dashTotalRomsLabel->setText(QString::number(roms.size()));
 }
 
-// -------------------------------------------------------------
-// Page 2: ROMs Setup (Simple native list grid table)
-// -------------------------------------------------------------
 void MainWindow::setupRomsPage() {
     auto* page = new QWidget(this);
     auto* layout = new QVBoxLayout(page);
@@ -156,14 +147,13 @@ void MainWindow::setupRomsPage() {
 
     m_romsTable = new QTableWidget(this);
     m_romsTable->setColumnCount(5);
-    m_romsTable->setHorizontalHeaderLabels({"ROM Name", "Target Device", "Codename", "Android Version", "Partition Layout"});
+    m_romsTable->setHorizontalHeaderLabels({"ROM Name", "Target Device", "Codename", "Android Version", "Bootable Status"});
     m_romsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_romsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_romsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_romsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     layout->addWidget(m_romsTable);
 
-    // Actions block under list
     auto* actionLayout = new QHBoxLayout();
     actionLayout->setSpacing(10);
 
@@ -173,7 +163,7 @@ void MainWindow::setupRomsPage() {
 
     m_launchBtn = new QPushButton("Launch", this);
     m_launchBtn->setEnabled(false);
-    m_launchBtn->setToolTip("Virtualization engine is integration work for Phase 3");
+    m_launchBtn->setToolTip("Virtualization engine integration will occur in Phase 4");
     connect(m_launchBtn, &QPushButton::clicked, this, &MainWindow::onLaunchClicked);
     actionLayout->addWidget(m_launchBtn);
 
@@ -204,10 +194,9 @@ void MainWindow::loadRomsList() {
         m_romsTable->setItem(i, 1, new QTableWidgetItem(QString::fromStdString(roms[i].device)));
         m_romsTable->setItem(i, 2, new QTableWidgetItem(QString::fromStdString(roms[i].codename)));
         m_romsTable->setItem(i, 3, new QTableWidgetItem(QString::fromStdString(roms[i].androidVersion)));
-        m_romsTable->setItem(i, 4, new QTableWidgetItem(QString::fromStdString(roms[i].partitionLayout)));
+        m_romsTable->setItem(i, 4, new QTableWidgetItem(QString::fromStdString(roms[i].status)));
     }
     
-    // Enable/disable buttons based on count
     bool hasRows = roms.size() > 0;
     m_removeBtn->setEnabled(hasRows);
     m_infoBtn->setEnabled(hasRows);
@@ -236,7 +225,7 @@ void MainWindow::onInstallRomClicked() {
         "Android Version: %3\n"
         "Architecture: %4\n\n"
         "Would you like to install it now?\n"
-        "(This will extract partition images into the emulator directory and run details inspection)"
+        "(This will extract partition images into the emulator directory and run boot validation checks)"
     ).arg(QString::fromStdString(meta.name), QString::fromStdString(meta.device), QString::fromStdString(meta.androidVersion), QString::fromStdString(meta.architecture));
 
     QMessageBox::StandardButton reply = QMessageBox::question(
@@ -255,8 +244,8 @@ void MainWindow::onInstallRomClicked() {
             return;
         }
 
-        m_statusLabel->setText("Status: Extracting & parsing images...");
-        QProgressDialog progress("Extracting images & parsing headers, please wait...", nullptr, 0, 0, this);
+        m_statusLabel->setText("Status: Extracting & validating images...");
+        QProgressDialog progress("Extracting images & validating boot parameters, please wait...", nullptr, 0, 0, this);
         progress.setWindowModality(Qt::WindowModal);
         progress.setMinimumDuration(0);
         progress.show();
@@ -267,7 +256,7 @@ void MainWindow::onInstallRomClicked() {
         progress.close();
 
         if (success) {
-            QMessageBox::information(this, "Installation Complete", QString("ROM '%1' has been successfully installed and parsed!").arg(romName));
+            QMessageBox::information(this, "Installation Complete", QString("ROM '%1' has been successfully installed and verified!").arg(romName));
             m_statusLabel->setText("Status: Ready");
             loadRomsList();
         } else {
@@ -280,7 +269,7 @@ void MainWindow::onInstallRomClicked() {
 }
 
 void MainWindow::onLaunchClicked() {
-    // Emulator launch logic placeholder
+    // Placeholder
 }
 
 void MainWindow::onRemoveClicked() {
@@ -334,16 +323,44 @@ void MainWindow::onRomInfoClicked() {
     if (it != roms.end()) {
         const auto& meta = *it;
         
+        // Generate a fresh Boot validation report on-the-fly to show check results
+        QString romDir = QCoreApplication::applicationDirPath() + "/roms/" + QString::fromStdString(meta.name);
+        auto report = BootManager::validateAndPrepareBoot(meta.name, romDir.toStdString());
+
+        QString warningsStr = "None";
+        if (!report.warnings.empty()) {
+            warningsStr = "";
+            for (const auto& w : report.warnings) {
+                warningsStr += "  ⚠️ " + QString::fromStdString(w) + "\n";
+            }
+        }
+
+        QString errorsStr = "None";
+        if (!report.errors.empty()) {
+            errorsStr = "";
+            for (const auto& e : report.errors) {
+                errorsStr += "  ❌ " + QString::fromStdString(e) + "\n";
+            }
+        }
+
+        QString recsStr = "None";
+        if (!report.recommendations.empty()) {
+            recsStr = "";
+            for (const auto& r : report.recommendations) {
+                recsStr += "  💡 " + QString::fromStdString(r) + "\n";
+            }
+        }
+
         QString imagesListStr = "None";
         if (!meta.images.empty()) {
             imagesListStr = "";
             for (const auto& img : meta.images) {
-                imagesListStr += " - " + QString::fromStdString(img) + "\n";
+                imagesListStr += "  - " + QString::fromStdString(img) + "\n";
             }
         }
 
         QString info = QString(
-            "Detailed ROM Information (Parsed in Phase 2):\n\n"
+            "Detailed ROM Information (Parsed & Verified):\n\n"
             "ROM Name: %1\n"
             "Device Model: %2\n"
             "Codename / Board: %3\n"
@@ -351,9 +368,16 @@ void MainWindow::onRomInfoClicked() {
             "Architecture: %5\n"
             "Kernel Release: %6\n"
             "Partition Layout: %7\n"
-            "Verified Boot (AVB): %8\n"
-            "Metadata Version: %9\n\n"
-            "Extracted Image Files:\n%10"
+            "Verified Boot (AVB): %8\n\n"
+            "--------------------------------------------------\n"
+            "Boot validation checklist (Phase 3):\n"
+            "Status: %9\n"
+            "Virtual Machine Profile: %10\n\n"
+            "Errors:\n%11\n"
+            "Warnings:\n%12\n"
+            "Recommendations:\n%13\n"
+            "--------------------------------------------------\n"
+            "Extracted partition image files:\n%14"
         ).arg(
             QString::fromStdString(meta.name),
             QString::fromStdString(meta.device),
@@ -363,17 +387,18 @@ void MainWindow::onRomInfoClicked() {
             QString::fromStdString(meta.kernel),
             QString::fromStdString(meta.partitionLayout),
             QString::fromStdString(meta.avbStatus),
-            QString::number(meta.metadataVersion),
+            QString::fromStdString(report.status),
+            QString::fromStdString(report.vmProfile),
+            errorsStr,
+            warningsStr,
+            recsStr,
             imagesListStr
         );
 
-        QMessageBox::information(this, "Detailed ROM Inspection", info);
+        QMessageBox::information(this, "Detailed ROM Verification Report", info);
     }
 }
 
-// -------------------------------------------------------------
-// Page 3: Settings Setup
-// -------------------------------------------------------------
 void MainWindow::setupSettingsPage() {
     auto* page = new QWidget(this);
     auto* layout = new QVBoxLayout(page);
@@ -403,9 +428,6 @@ void MainWindow::setupSettingsPage() {
     m_stackedWidget->addWidget(page);
 }
 
-// -------------------------------------------------------------
-// Page 4: Logs Panel Setup
-// -------------------------------------------------------------
 void MainWindow::setupLogsPage() {
     auto* page = new QWidget(this);
     auto* layout = new QVBoxLayout(page);
@@ -421,7 +443,6 @@ void MainWindow::setupLogsPage() {
 
     m_logsTextEdit = new QTextEdit(this);
     m_logsTextEdit->setReadOnly(true);
-    // Use monospace font for logs
     QFont monoFont("Courier New");
     monoFont.setStyleHint(QFont::Monospace);
     m_logsTextEdit->setFont(monoFont);
@@ -435,7 +456,6 @@ void MainWindow::setupLogsPage() {
 }
 
 void MainWindow::refreshLogPanel() {
-    // Read the log file if available, otherwise print fallback
     QString logPath = QCoreApplication::applicationDirPath() + "/logs/launcher.log";
     std::ifstream in(logPath.toStdString());
     if (in) {
@@ -447,9 +467,6 @@ void MainWindow::refreshLogPanel() {
     }
 }
 
-// -------------------------------------------------------------
-// Page 5: About Setup
-// -------------------------------------------------------------
 void MainWindow::setupAboutPage() {
     auto* page = new QWidget(this);
     auto* layout = new QVBoxLayout(page);
@@ -465,17 +482,17 @@ void MainWindow::setupAboutPage() {
 
     auto* aboutText = new QLabel(
         "CustomAndroidEmulator Launcher\n"
-        "Version 0.2.0 (Phase 2: Image Parsing)\n\n"
+        "Version 0.3.0 (Phase 3: Boot Readiness Validation)\n\n"
         "An ambitious systems-programming project aiming to run custom Android ROM packages "
         "inside a dynamic virtualization environment on Windows using a modular QEMU backend.\n\n"
-        "Features completed:\n"
-        " - Generic ROM zip package installation and unpacking\n"
-        " - Android boot.img header parsing (v0-v4 structures, OS version decoding, kernel signature search)\n"
-        " - AVB 2.0 (Verified Boot) vbmeta.img flag checking\n"
-        " - Android A/B OTA payload.bin header validation and partition list extraction\n"
-        " - Dynamic super partition (liblp) geometry validation\n"
-        " - EXT4 filesystem image checks (superblock signature validation)\n\n"
-        "Developed by Antigravity paired with USER.",
+        "Phase 3 Features:\n"
+        " - Shared Models Module implementation (boot_info, vbmeta_info, payload_info, rom_metadata)\n"
+        " - Categorized Logging system\n"
+        " - Boot readiness validations (carving offsets, super/payload slot checking, AVB vbmeta verify flag scans)\n"
+        " - Generating virtual machine descriptions (boot_config.json containing offsets & vm_profiles)\n"
+        " - Native Windows Light/Dark look and feel with full checklist reports\n"
+        " - Self-contained automated parser and validator unit testing suite\n\n"
+        "Developed by abisin-raj <abisinr201@gmail.com>.",
         this
     );
     aboutText->setWordWrap(true);

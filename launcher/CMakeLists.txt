@@ -8,5 +8,7 @@ target_link_libraries(launcher PRIVATE
     rom_manager
     Qt6::Widgets
     core
+    models
     image_parser
+    boot_manager
 )
