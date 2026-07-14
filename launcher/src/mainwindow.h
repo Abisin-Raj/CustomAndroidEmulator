@@ -8,9 +8,11 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QLineEdit>
+#include <QTabWidget>
 #include <memory>
 #include "rom_manager/rom_manager.h"
 #include "virtual_machine/vm_manager.h"
+#include "boot_events/event_types.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -34,6 +36,10 @@ private slots:
     // VM State Slot Callbacks
     void onVmStateChanged(bool running);
 
+    // Boot Pipeline Real-time Callbacks
+    void onBootEventDispatched(const BootEvent& event);
+    void onBootStateChanged(BootState state);
+
     // Helpers to update page content
     void refreshLogPanel();
     void updateDashboardStats();
@@ -47,6 +53,7 @@ private:
     void setupAboutPage();
     
     void loadRomsList();
+    void resetBootChecklist();
 
     std::unique_ptr<RomManager> m_romManager;
     VmManager* m_vmManager = nullptr;
@@ -69,8 +76,19 @@ private:
     QLineEdit* m_qemuPathLineEdit = nullptr;
     QPushButton* m_browseQemuBtn = nullptr;
 
-    // Page 4: Logs
+    // Page 4: Logs (Split layout)
+    QListWidget* m_timelineListWidget = nullptr;
     QTextEdit* m_logsTextEdit = nullptr;
+    QTextEdit* m_crashAnalyzerEdit = nullptr;
+    QTabWidget* m_logTabWidget = nullptr;
+
+    // Check states checklist labels
+    QLabel* m_stateVmStarting = nullptr;
+    QLabel* m_stateKernelRunning = nullptr;
+    QLabel* m_stateUserspaceStarting = nullptr;
+    QLabel* m_stateSystemServices = nullptr;
+    QLabel* m_stateBootComplete = nullptr;
+    QLabel* m_bootStatsLabel = nullptr;
     
     // Status Bar
     QLabel* m_statusLabel = nullptr;

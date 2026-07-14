@@ -4,6 +4,8 @@
 #include "image_parser/image_parser.h"
 #include "boot_manager/boot_manager.h"
 #include "models/boot_report.h"
+#include "boot_events/event_dispatcher.h"
+#include "boot_pipeline/boot_pipeline_manager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -15,14 +17,15 @@
 #include <QTimer>
 #include <QFormLayout>
 #include <QStatusBar>
+#include <QGroupBox>
 #include <fstream>
 #include <filesystem>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent) {
     setWindowTitle("Custom Android Emulator");
-    resize(850, 520);
-    setMinimumSize(700, 400);
+    resize(900, 550);
+    setMinimumSize(750, 450);
 
     // Initialize configuration files
     core::ConfigManager::initializeDefaultConfigs();
@@ -33,6 +36,10 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Track active VM state changes
     connect(m_vmManager, &VmManager::vmStateChanged, this, &MainWindow::onVmStateChanged);
+
+    // Connect real-time Boot Pipeline callbacks
+    connect(m_vmManager->getDispatcher(), &EventDispatcher::eventDispatched, this, &MainWindow::onBootEventDispatched);
+    connect(m_vmManager->getDispatcher(), &EventDispatcher::stateChanged, this, &MainWindow::onBootStateChanged);
 
     setupUi();
     
@@ -127,7 +134,7 @@ void MainWindow::setupDashboardPage() {
     gridLayout->addWidget(new QLabel("Windows x86_64", this), 2, 1);
 
     gridLayout->addWidget(new QLabel("Virtualization Engine:", this), 3, 0);
-    gridLayout->addWidget(new QLabel("QEMU Emulator Backend (Phase 4 Active)", this), 3, 1);
+    gridLayout->addWidget(new QLabel("QEMU Emulator Backend (Phase 5 Pipeline Active)", this), 3, 1);
 
     layout->addWidget(infoGroupBox);
     layout->addStretch();
@@ -171,7 +178,6 @@ void MainWindow::setupRomsPage() {
 
     m_launchBtn = new QPushButton("Launch", this);
     m_launchBtn->setEnabled(false);
-    m_launchBtn->setToolTip("Virtualization engine integration (Phase 4)");
     connect(m_launchBtn, &QPushButton::clicked, this, &MainWindow::onLaunchClicked);
     actionLayout->addWidget(m_launchBtn);
 
@@ -293,12 +299,16 @@ void MainWindow::onLaunchClicked() {
     }
 
     std::string name = m_romsTable->item(row, 0)->text().toStdString();
-    
-    // Check if configuration parameters exist
     QString romDir = QCoreApplication::applicationDirPath() + "/roms/" + QString::fromStdString(name);
     
     m_statusLabel->setText("Status: Booting guest virtual machine...");
     QCoreApplication::processEvents();
+
+    m_timelineListWidget->clear();
+    m_crashAnalyzerEdit->clear();
+    m_logsTextEdit->clear();
+    m_logTabWidget->setCurrentIndex(0); // View timeline
+    resetBootChecklist();
 
     if (m_vmManager->startVm(name, romDir.toStdString())) {
         LOG_LAUNCHER_INFO("Virtual machine launcher spawned successfully.");
@@ -318,9 +328,9 @@ void MainWindow::onVmStateChanged(bool running) {
         m_removeBtn->setEnabled(false);
         m_infoBtn->setEnabled(false);
         m_romsTable->setEnabled(false);
-        m_sidebarList->item(0)->setFlags(m_sidebarList->item(0)->flags() & ~Qt::ItemIsEnabled); // Disable dashboard selection
-        m_sidebarList->item(1)->setFlags(m_sidebarList->item(1)->flags() & ~Qt::ItemIsEnabled); // Disable ROMs selection
-        m_sidebarList->item(2)->setFlags(m_sidebarList->item(2)->flags() & ~Qt::ItemIsEnabled); // Disable Settings selection
+        m_sidebarList->item(0)->setFlags(m_sidebarList->item(0)->flags() & ~Qt::ItemIsEnabled); // Disable dashboard
+        m_sidebarList->item(1)->setFlags(m_sidebarList->item(1)->flags() & ~Qt::ItemIsEnabled); // Disable ROMs
+        m_sidebarList->item(2)->setFlags(m_sidebarList->item(2)->flags() & ~Qt::ItemIsEnabled); // Disable Settings
     } else {
         m_statusLabel->setText("Status: Ready");
         m_launchBtn->setText("Launch");
@@ -331,8 +341,127 @@ void MainWindow::onVmStateChanged(bool running) {
             m_sidebarList->item(i)->setFlags(m_sidebarList->item(i)->flags() | Qt::ItemIsEnabled);
         }
 
+        // Show session stats overview
+        QString statsSummary = QString::fromStdString(m_vmManager->getPipelineManager()->getSession().generateStats());
+        m_bootStatsLabel->setText(statsSummary);
+
         loadRomsList();
     }
+}
+
+void MainWindow::onBootStateChanged(BootState state) {
+    switch (state) {
+        case BootState::VM_STARTING:
+            m_stateVmStarting->setText("✓ VM Started");
+            m_stateVmStarting->setStyleSheet("color: #2196F3; font-weight: bold;"); // Blue
+            break;
+        case BootState::KERNEL_LOADING:
+            m_stateVmStarting->setText("✓ Kernel Loaded");
+            m_stateVmStarting->setStyleSheet("color: #4CAF50; font-weight: bold;"); // Green
+            break;
+        case BootState::KERNEL_RUNNING:
+            m_stateKernelRunning->setText("✓ Kernel Running");
+            m_stateKernelRunning->setStyleSheet("color: #4CAF50; font-weight: bold;");
+            break;
+        case BootState::USERSPACE_STARTING:
+            m_stateUserspaceStarting->setText("✓ Userspace Starting");
+            m_stateUserspaceStarting->setStyleSheet("color: #4CAF50; font-weight: bold;");
+            break;
+        case BootState::SYSTEM_SERVICES:
+            m_stateSystemServices->setText("✓ System Services");
+            m_stateSystemServices->setStyleSheet("color: #4CAF50; font-weight: bold;");
+            break;
+        case BootState::BOOT_COMPLETE:
+            m_stateBootComplete->setText("✓ Boot Completed");
+            m_stateBootComplete->setStyleSheet("color: #4CAF50; font-weight: bold;");
+            break;
+        case BootState::EMULATION_FAILED:
+            m_statusLabel->setText("Status: Emulation Failed / Panicked");
+            break;
+    }
+}
+
+void MainWindow::onBootEventDispatched(const BootEvent& event) {
+    QString timeStr = QString("[%1s] ").arg(event.elapsedSeconds, 0, 'f', 2);
+    QString text = timeStr + QString::fromStdString(event.details);
+    
+    // Add confidence annotation
+    text += QString(" (Confidence: %1%)").arg(event.confidence * 100.0, 0, 'f', 0);
+    
+    auto* item = new QListWidgetItem(text, m_timelineListWidget);
+    
+    // Apply styling based on severity level
+    switch (event.severity) {
+        case EventSeverity::Info:
+            item->setForeground(QBrush(QColor("#2196F3"))); // Blue
+            break;
+        case EventSeverity::Warning:
+            item->setForeground(QBrush(QColor("#FF9800"))); // Orange
+            break;
+        case EventSeverity::Error:
+        case EventSeverity::Critical:
+            item->setForeground(QBrush(QColor("#F44336"))); // Red
+            item->setFont(QFont("Segoe UI", -1, QFont::Bold));
+            break;
+    }
+
+    m_timelineListWidget->addItem(item);
+    m_timelineListWidget->scrollToBottom();
+
+    // Trigger crash window automatically if critical panic event occurred
+    if (event.type == BootEventType::KernelPanic) {
+        m_logTabWidget->setCurrentIndex(2); // Focus Crash Tab
+
+        std::string process = event.metadata.count("process") ? event.metadata.at("process") : "Unknown";
+        std::string pid = event.metadata.count("pid") ? event.metadata.at("pid") : "Unknown";
+        std::string cpu = event.metadata.count("cpu") ? event.metadata.at("cpu") : "Unknown";
+        std::string cause = event.metadata.count("suggested_cause") ? event.metadata.at("suggested_cause") : "Unknown";
+        std::string regs = event.metadata.count("registers") ? event.metadata.at("registers") : "";
+        std::string trace = event.metadata.count("call_trace") ? event.metadata.at("call_trace") : "";
+
+        QString crashReport = QString(
+            "==================================================\n"
+            "   GUEST SYSTEM KERNEL PANIC ANALYZER\n"
+            "==================================================\n"
+            "Critical panic detected during OS boot pipeline execution!\n\n"
+            "● Reason:             %1\n"
+            "● Process Comm:       %2 (PID: %3)\n"
+            "● Faulting CPU:       Core %4\n"
+            "● Suggested Cause:    %5\n\n"
+            "--------------------------------------------------\n"
+            "REGISTERS DUMP:\n"
+            "--------------------------------------------------\n%6\n\n"
+            "--------------------------------------------------\n"
+            "CALL STACK BACKTRACE:\n"
+            "--------------------------------------------------\n%7"
+        ).arg(
+            QString::fromStdString(event.details),
+            QString::fromStdString(process),
+            QString::fromStdString(pid),
+            QString::fromStdString(cpu),
+            QString::fromStdString(cause),
+            QString::fromStdString(regs),
+            QString::fromStdString(trace)
+        );
+
+        m_crashAnalyzerEdit->setPlainText(crashReport);
+
+        // Mark the active check state as failed visually
+        if (m_vmManager->getPipelineManager()->getContext().currentState < BootState::KERNEL_RUNNING) {
+            m_stateKernelRunning->setText("✗ Kernel Panic");
+            m_stateKernelRunning->setStyleSheet("color: #F44336; font-weight: bold;");
+        } else if (m_vmManager->getPipelineManager()->getContext().currentState < BootState::USERSPACE_STARTING) {
+            m_stateUserspaceStarting->setText("✗ Boot Failed");
+            m_stateUserspaceStarting->setStyleSheet("color: #F44336; font-weight: bold;");
+        } else {
+            m_stateSystemServices->setText("✗ Systems Crashed");
+            m_stateSystemServices->setStyleSheet("color: #F44336; font-weight: bold;");
+        }
+    }
+
+    // Refresh quick stats counts
+    QString statsSummary = QString::fromStdString(m_vmManager->getPipelineManager()->getSession().generateStats());
+    m_bootStatsLabel->setText(statsSummary);
 }
 
 void MainWindow::onRemoveClicked() {
@@ -433,7 +562,7 @@ void MainWindow::onRomInfoClicked() {
             "Partition Layout: %7\n"
             "Verified Boot (AVB): %8\n\n"
             "--------------------------------------------------\n"
-            "Boot validation checklist (Phase 3):\n"
+            "Boot validation checklist:\n"
             "Status: %9\n"
             "Virtual Machine Profile: %10\n\n"
             "Errors:\n%11\n"
@@ -520,29 +649,87 @@ void MainWindow::onBrowseQemuClicked() {
 
 void MainWindow::setupLogsPage() {
     auto* page = new QWidget(this);
-    auto* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 20, 20, 20);
-    layout->setSpacing(10);
+    auto* mainHLayout = new QHBoxLayout(page);
+    mainHLayout->setContentsMargins(10, 10, 10, 10);
+    mainHLayout->setSpacing(15);
 
-    auto* titleLabel = new QLabel("System Execution Logs", this);
-    QFont titleFont = titleLabel->font();
-    titleFont.setPointSize(16);
-    titleFont.setBold(true);
-    titleLabel->setFont(titleFont);
-    layout->addWidget(titleLabel);
+    // Left Panel: Checkpoints & Stats
+    auto* leftWidget = new QWidget(this);
+    leftWidget->setFixedWidth(210);
+    auto* leftVLayout = new QVBoxLayout(leftWidget);
+    leftVLayout->setContentsMargins(0, 0, 0, 0);
+    leftVLayout->setSpacing(10);
+
+    auto* checkGroup = new QGroupBox("Boot Checkpoints", this);
+    auto* checkLayout = new QVBoxLayout(checkGroup);
+    checkLayout->setSpacing(8);
+
+    m_stateVmStarting = new QLabel("○ Preparing", this);
+    m_stateKernelRunning = new QLabel("○ Kernel Running", this);
+    m_stateUserspaceStarting = new QLabel("○ Userspace Starting", this);
+    m_stateSystemServices = new QLabel("○ System Services", this);
+    m_stateBootComplete = new QLabel("○ Boot Completed", this);
+
+    checkLayout->addWidget(m_stateVmStarting);
+    checkLayout->addWidget(m_stateKernelRunning);
+    checkLayout->addWidget(m_stateUserspaceStarting);
+    checkLayout->addWidget(m_stateSystemServices);
+    checkLayout->addWidget(m_stateBootComplete);
+    checkLayout->addStretch();
+
+    leftVLayout->addWidget(checkGroup);
+
+    auto* statsGroup = new QGroupBox("Session Statistics", this);
+    auto* statsLayout = new QVBoxLayout(statsGroup);
+    m_bootStatsLabel = new QLabel("No active boot session.", this);
+    m_bootStatsLabel->setWordWrap(true);
+    statsLayout->addWidget(m_bootStatsLabel);
+    
+    leftVLayout->addWidget(statsGroup);
+    leftVLayout->addStretch();
+
+    mainHLayout->addWidget(leftWidget);
+
+    // Right Panel: Tab Widgets
+    m_logTabWidget = new QTabWidget(this);
+
+    m_timelineListWidget = new QListWidget(this);
+    m_logTabWidget->addTab(m_timelineListWidget, "Boot Timeline");
 
     m_logsTextEdit = new QTextEdit(this);
     m_logsTextEdit->setReadOnly(true);
     QFont monoFont("Courier New");
     monoFont.setStyleHint(QFont::Monospace);
     m_logsTextEdit->setFont(monoFont);
-    layout->addWidget(m_logsTextEdit);
+    
+    m_logTabWidget->addTab(m_logsTextEdit, "Console Output");
 
-    auto* refreshBtn = new QPushButton("Refresh Logs", this);
-    connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::refreshLogPanel);
-    layout->addWidget(refreshBtn);
+    m_crashAnalyzerEdit = new QTextEdit(this);
+    m_crashAnalyzerEdit->setReadOnly(true);
+    m_crashAnalyzerEdit->setFont(monoFont);
+    m_logTabWidget->addTab(m_crashAnalyzerEdit, "Crash Analyzer");
+
+    mainHLayout->addWidget(m_logTabWidget);
+
+    // Default checklist labels stylesheet
+    resetBootChecklist();
 
     m_stackedWidget->addWidget(page);
+}
+
+void MainWindow::resetBootChecklist() {
+    m_stateVmStarting->setText("○ Preparing");
+    m_stateKernelRunning->setText("○ Kernel Running");
+    m_stateUserspaceStarting->setText("○ Userspace Starting");
+    m_stateSystemServices->setText("○ System Services");
+    m_stateBootComplete->setText("○ Boot Completed");
+
+    QString style = "color: #757575; font-size: 11pt;"; // Gray color
+    m_stateVmStarting->setStyleSheet(style);
+    m_stateKernelRunning->setStyleSheet(style);
+    m_stateUserspaceStarting->setStyleSheet(style);
+    m_stateSystemServices->setStyleSheet(style);
+    m_stateBootComplete->setStyleSheet(style);
 }
 
 void MainWindow::refreshLogPanel() {
@@ -572,16 +759,15 @@ void MainWindow::setupAboutPage() {
 
     auto* aboutText = new QLabel(
         "CustomAndroidEmulator Launcher\n"
-        "Version 0.4.0 (Phase 4: Virtual Machine Runtime)\n\n"
+        "Version 0.5.0 (Phase 5: Android Boot Pipeline)\n\n"
         "An ambitious systems-programming project aiming to run custom Android ROM packages "
         "inside a dynamic virtualization environment on Windows using a modular QEMU backend.\n\n"
-        "Phase 4 Features:\n"
-        " - Shared ConfigManager parsing settings.json and vm_profiles.json\n"
-        " - Memory-based BootAssetLoader seeking and temp boot extractions\n"
-        " - Non-blocking QEMU process execution redirecting logs in real-time\n"
-        " - Virtual board profiles configurations mapping custom parameters\n"
-        " - Active VM state locking on UI tabs and buttons\n"
-        " - Browser configuration paths selector\n\n"
+        "Phase 5 Features:\n"
+        " - Decoupled IBootDetector structures (Kernel, Init, Panic)\n"
+        " - EventDispatcher broadcasts signal notifications across components\n"
+        " - Register/CPU cores/process PID tracing inside PanicDetector\n"
+        " - Dynamic checklist checklist mapping generic boot checkpoints\n"
+        " - Session timings logs saved under logs/boot_<ROM>_<timestamp>.log\n\n"
         "Developed by abisin-raj <abisinr201@gmail.com>.",
         this
     );
