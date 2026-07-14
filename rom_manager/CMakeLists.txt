@@ -9,7 +9,8 @@ target_include_directories(rom_manager PUBLIC
 
 target_link_libraries(rom_manager PUBLIC
     nlohmann_json::nlohmann_json
-    spdlog::spdlog
     LibArchive::LibArchive
     Qt6::Core
+    core
+    image_parser
 )

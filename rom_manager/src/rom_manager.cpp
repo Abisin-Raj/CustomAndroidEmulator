@@ -1,8 +1,9 @@
 #include "rom_manager/rom_manager.h"
+#include "core/logger.h"
+#include "image_parser/image_parser.h"
 #include <archive.h>
 #include <archive_entry.h>
 #include <nlohmann/json.hpp>
-#include <spdlog/spdlog.h>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -45,11 +46,12 @@ void RomManager::ensureRomsDirExists() const {
             std::filesystem::create_directories(m_romsDir);
         }
     } catch (const std::exception& e) {
-        spdlog::error("Failed to create ROMs directory '{}': {}", m_romsDir.string(), e.what());
+        LOG_ERROR("RomManager: Failed to create ROMs directory '{}': {}", m_romsDir.string(), e.what());
     }
 }
 
 bool RomManager::validateRomZip(const std::string& zipPath, RomMetadata& outMetadata, std::string& outError) {
+    LOG_INFO("RomManager: Validating zip package: {}", zipPath);
     struct archive* a = archive_read_new();
     archive_read_support_format_zip(a);
     archive_read_support_filter_all(a);
@@ -57,6 +59,7 @@ bool RomManager::validateRomZip(const std::string& zipPath, RomMetadata& outMeta
     int r = archive_read_open_filename(a, zipPath.c_str(), 10240);
     if (r != ARCHIVE_OK) {
         outError = "Failed to open ZIP file: " + std::string(archive_error_string(a));
+        LOG_ERROR("RomManager: validateRomZip failed. {}", outError);
         archive_read_free(a);
         return false;
     }
@@ -69,9 +72,8 @@ bool RomManager::validateRomZip(const std::string& zipPath, RomMetadata& outMeta
     while (archive_read_next_header(a, &entry) == ARCHIVE_OK) {
         std::string name = archive_entry_pathname(entry);
         
-        // Accept common images or payload.bin
-        if (name == "boot.img" || name == "system.img" || name == "vendor.img" || 
-            name == "product.img" || name == "payload.bin" || name.ends_with(".img")) {
+        // Match generic image files, binaries, or payload.bin
+        if (name.ends_with(".img") || name.ends_with(".bin") || name.ends_with(".elf") || name == "payload.bin") {
             hasImages = true;
         }
 
@@ -83,7 +85,7 @@ bool RomManager::validateRomZip(const std::string& zipPath, RomMetadata& outMeta
             if (bytesRead >= 0) {
                 metadataContent.resize(bytesRead);
             } else {
-                spdlog::warn("Failed to read metadata file content from archive");
+                LOG_WARN("RomManager: Failed to read metadata file from ZIP.");
             }
         }
     }
@@ -91,14 +93,17 @@ bool RomManager::validateRomZip(const std::string& zipPath, RomMetadata& outMeta
     archive_read_free(a);
 
     if (!hasImages) {
-        outError = "ZIP file does not contain valid Android image files (boot.img, system.img, payload.bin, etc.)";
+        outError = "ZIP file does not contain valid Android image files (.img, .bin, payload.bin, etc.)";
+        LOG_WARN("RomManager: validateRomZip failed. {}", outError);
         return false;
     }
 
     // Default metadata
+    outMetadata.metadataVersion = 1;
     outMetadata.name = std::filesystem::path(zipPath).stem().string();
     outMetadata.androidVersion = "Unknown";
     outMetadata.device = "Generic Device";
+    outMetadata.codename = "unknown";
     outMetadata.architecture = "arm64";
     outMetadata.status = "Valid";
 
@@ -115,12 +120,16 @@ bool RomManager::validateRomZip(const std::string& zipPath, RomMetadata& outMeta
                 std::string val = trim(line.substr(eqPos + 1));
                 if (key == "pre-device") {
                     outMetadata.device = val;
+                    outMetadata.codename = val;
                 } else if (key == "post-build") {
                     outMetadata.androidVersion = parseAndroidVersion(val);
                 }
             }
         }
     }
+
+    LOG_INFO("RomManager: Validation successful. Detected ROM: name='{}', device='{}', android='{}'", 
+        outMetadata.name, outMetadata.device, outMetadata.androidVersion);
 
     return true;
 }
@@ -138,12 +147,14 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
     std::filesystem::path targetFolder = m_romsDir / meta.name;
     if (std::filesystem::exists(targetFolder)) {
         outError = "A ROM with the name '" + meta.name + "' is already installed.";
+        LOG_WARN("RomManager: Install failed. ROM folder already exists: {}", targetFolder.string());
         return false;
     }
 
-    spdlog::info("Installing ROM '{}' to '{}'", meta.name, targetFolder.string());
+    LOG_INFO("RomManager: Installing ROM '{}' to '{}'", meta.name, targetFolder.string());
     if (!std::filesystem::create_directories(targetFolder)) {
         outError = "Failed to create target directory: " + targetFolder.string();
+        LOG_ERROR("RomManager: Install failed. {}", outError);
         return false;
     }
 
@@ -154,6 +165,7 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
     int r = archive_read_open_filename(a, zipPath.c_str(), 10240);
     if (r != ARCHIVE_OK) {
         outError = "Failed to open ZIP for extraction: " + std::string(archive_error_string(a));
+        LOG_ERROR("RomManager: Install failed. {}", outError);
         archive_read_free(a);
         return false;
     }
@@ -164,20 +176,26 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
     while (archive_read_next_header(a, &entry) == ARCHIVE_OK) {
         std::string name = archive_entry_pathname(entry);
 
-        if (name == "boot.img" || name == "system.img" || name == "vendor.img" || 
-            name == "product.img" || name == "payload.bin" || name.ends_with(".img")) {
-            
+        // Generic extraction: extract ALL image or binary files and metadata
+        bool isExtractable = (name.ends_with(".img") || name.ends_with(".bin") || name.ends_with(".elf") || 
+                              name == "payload.bin" || name == "META-INF/com/android/metadata");
+
+        if (isExtractable) {
             std::filesystem::path destFile = targetFolder / name;
-            spdlog::info("Extracting '{}'...", name);
+            LOG_INFO("RomManager: Extracting '{}' to '{}'", name, destFile.string());
+            
+            // Create subdirectories if metadata is in subfolders
+            std::filesystem::create_directories(destFile.parent_path());
 
             std::ofstream out(destFile, std::ios::binary);
             if (!out) {
                 outError = "Failed to create destination file: " + destFile.string();
+                LOG_ERROR("RomManager: Install failed during extraction. {}", outError);
                 extractionSuccess = false;
                 break;
             }
 
-            char buffer[16384];
+            char buffer[32768];
             la_ssize_t size;
             while ((size = archive_read_data(a, buffer, sizeof(buffer))) > 0) {
                 out.write(buffer, size);
@@ -185,6 +203,7 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
 
             if (size < 0) {
                 outError = "Error reading archive entry: " + std::string(archive_error_string(a));
+                LOG_ERROR("RomManager: Install failed during extraction data stream. {}", outError);
                 extractionSuccess = false;
                 break;
             }
@@ -198,13 +217,31 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
         return false;
     }
 
+    // Run Image Inspection Engine on target folder to populate detailed information
+    LOG_INFO("RomManager: Extract complete. Running ImageParser inspection...");
+    auto inspection = ImageParserEngine::inspectRomDirectory(targetFolder);
+
+    // Populate advanced metadata
+    meta.kernel = inspection.kernelRelease;
+    meta.partitionLayout = inspection.partitionLayout;
+    meta.images = inspection.images;
+    meta.avbStatus = inspection.avbEnabled ? "Active (VBMeta verified)" : "Disabled / Strip-off";
+    
+    // Only overwrite OS version if parser successfully read it from boot.img
+    if (inspection.osVersion != "Unknown") {
+        meta.androidVersion = inspection.osVersion;
+    }
+
     meta.status = "Installed";
+
     if (!saveMetadata(targetFolder, meta)) {
         outError = "Failed to save metadata.json in ROM directory.";
+        LOG_ERROR("RomManager: Install failed. {}", outError);
         std::filesystem::remove_all(targetFolder);
         return false;
     }
 
+    LOG_INFO("RomManager: Installation of '{}' completed successfully.", meta.name);
     return true;
 }
 
@@ -232,20 +269,27 @@ bool RomManager::uninstallRom(const std::string& romName, std::string& outError)
 
     try {
         std::filesystem::remove_all(targetFolder);
-        spdlog::info("ROM '{}' uninstalled successfully", romName);
+        LOG_INFO("RomManager: ROM '{}' uninstalled successfully from '{}'", romName, targetFolder.string());
         return true;
     } catch (const std::exception& e) {
         outError = std::string("Failed to remove ROM directory: ") + e.what();
+        LOG_ERROR("RomManager: Uninstall failed. {}", outError);
         return false;
     }
 }
 
 bool RomManager::saveMetadata(const std::filesystem::path& folder, const RomMetadata& meta) const {
     nlohmann::json j;
+    j["metadata_version"] = meta.metadataVersion;
     j["name"] = meta.name;
-    j["android_version"] = meta.androidVersion;
     j["device"] = meta.device;
+    j["codename"] = meta.codename;
+    j["android_version"] = meta.androidVersion;
     j["architecture"] = meta.architecture;
+    j["kernel"] = meta.kernel;
+    j["partition_layout"] = meta.partitionLayout;
+    j["images"] = meta.images;
+    j["avb_status"] = meta.avbStatus;
     j["status"] = meta.status;
 
     std::filesystem::path path = folder / "metadata.json";
@@ -264,14 +308,25 @@ bool RomManager::loadMetadata(const std::filesystem::path& folder, RomMetadata& 
     try {
         nlohmann::json j;
         in >> j;
+        
+        outMeta.metadataVersion = j.value("metadata_version", 1);
         outMeta.name = j.value("name", "");
-        outMeta.androidVersion = j.value("android_version", "");
-        outMeta.device = j.value("device", "");
-        outMeta.architecture = j.value("architecture", "");
+        outMeta.device = j.value("device", "Generic Device");
+        outMeta.codename = j.value("codename", "unknown");
+        outMeta.androidVersion = j.value("android_version", "Unknown");
+        outMeta.architecture = j.value("architecture", "arm64");
+        outMeta.kernel = j.value("kernel", "Unknown");
+        outMeta.partitionLayout = j.value("partition_layout", "A-only");
+        outMeta.avbStatus = j.value("avb_status", "Unknown");
         outMeta.status = j.value("status", "");
+
+        if (j.contains("images")) {
+            outMeta.images = j["images"].get<std::vector<std::string>>();
+        }
+
         return true;
     } catch (const std::exception& e) {
-        spdlog::error("Failed to parse metadata.json in '{}': {}", folder.string(), e.what());
+        LOG_ERROR("RomManager: Failed to parse metadata.json in '{}': {}", folder.string(), e.what());
         return false;
     }
 }
