@@ -5,6 +5,10 @@
 #include "boot_manager/boot_manager.h"
 #include "rom_manager/rom_manager.h"
 #include "models/rom_metadata.h"
+#include "core/config_manager.h"
+#include "boot_assets/boot_asset_loader.h"
+#include "virtual_machine/vm_profile.h"
+#include "qemu_backend/qemu_arguments.h"
 #include <iostream>
 #include <fstream>
 #include <cassert>
@@ -165,6 +169,66 @@ void testBootManagerValidation() {
     std::filesystem::remove_all(romDir);
 }
 
+void testConfigManager() {
+    std::string original = core::ConfigManager::getQemuPath();
+    core::ConfigManager::setQemuPath("C:\\dummy_qemu_path\\qemu-system-aarch64.exe");
+    TEST_ASSERT(core::ConfigManager::getQemuPath() == "C:\\dummy_qemu_path\\qemu-system-aarch64.exe", "Custom QEMU path must be saved and loaded");
+    
+    // Restore original path
+    core::ConfigManager::setQemuPath(original);
+
+    auto profiles = core::ConfigManager::loadProfiles();
+    TEST_ASSERT(!profiles.empty(), "ConfigManager must load template hardware profiles");
+    bool hasViolet = false;
+    for (const auto& p : profiles) {
+        if (p.name == "violet") hasViolet = true;
+    }
+    TEST_ASSERT(hasViolet, "Default profiles must contain violet");
+}
+
+void testBootAssetLoader() {
+    std::filesystem::path dummyImg = "dummy_boot.img";
+    std::vector<char> buffer(1000, 0);
+    // Write distinct pattern at offset 200
+    std::string pattern = "AndroidKernelSegment";
+    std::memcpy(buffer.data() + 200, pattern.c_str(), pattern.length());
+
+    std::ofstream out(dummyImg, std::ios::binary);
+    out.write(buffer.data(), buffer.size());
+    out.close();
+
+    // Load segment via BootAssetLoader
+    auto loaded = BootAssetLoader::loadBuffer(dummyImg, 200, pattern.length());
+    std::filesystem::remove(dummyImg);
+
+    TEST_ASSERT(loaded.size() == pattern.length(), "Loader must load the requested size");
+    std::string loadedStr(loaded.begin(), loaded.end());
+    TEST_ASSERT(loadedStr == pattern, "Loaded buffer content must match matching pattern");
+}
+
+void testVmProfile() {
+    VmProfile p = VmProfile::loadByName("violet");
+    TEST_ASSERT(p.cpu == "cortex-a76", "Violet profile CPU must map to cortex-a76");
+    TEST_ASSERT(p.machine == "virt", "Violet profile machine board must map to virt");
+    TEST_ASSERT(p.memory == "2048M", "Violet profile RAM size must map to 2048M");
+}
+
+void testQemuArguments() {
+    QemuConfigParameters params;
+    params.cpu = "cortex-a53";
+    params.machine = "virt";
+    params.memory = "1024M";
+    params.kernelPath = "C:\\path\\kernel";
+    params.ramdiskPath = "C:\\path\\ramdisk.img";
+    params.nographic = true;
+
+    QStringList args = QemuArguments::build(params);
+    TEST_ASSERT(args.contains("-cpu"), "Arguments must contain -cpu option");
+    TEST_ASSERT(args.contains("cortex-a53"), "Arguments must contain cortex-a53 value");
+    TEST_ASSERT(args.contains("-M"), "Arguments must contain -M machine option");
+    TEST_ASSERT(args.contains("-kernel"), "Arguments must contain -kernel");
+}
+
 int main() {
     core::initLogger();
     std::cout << "======================================\n";
@@ -175,6 +239,10 @@ int main() {
     testVbmetaParser();
     testExt4Parser();
     testBootManagerValidation();
+    testConfigManager();
+    testBootAssetLoader();
+    testVmProfile();
+    testQemuArguments();
 
     std::filesystem::path realRom = "PixelExperience_violet-13.0-20240127-0711-OFFICIAL.zip";
     if (std::filesystem::exists(realRom)) {
