@@ -21,6 +21,9 @@
 #include "image_converter/transfer_list_parser.h"
 #include "image_converter/dat_image_builder.h"
 #include "kernel_analysis/symbol_resolver.h"
+#include "firmware/smc_types.h"
+#include "firmware/smc_dispatcher.h"
+#include "firmware/scm_services.h"
 #include <iostream>
 #include <fstream>
 #include <cassert>
@@ -535,6 +538,99 @@ int main() {
         }
         std::filesystem::remove_all("test_real_rom_dir");
         std::cout << "======================================\n";
+    }
+
+    // ===================================================================
+    // Section: SmcDispatcher — Firmware Compatibility Layer
+    // ===================================================================
+    std::cout << "\n--- SmcDispatcher Tests ---\n";
+
+    // --- Test 1: SmcId decodes 0xC2000601 correctly ---
+    {
+        firmware::SmcId id;
+        id.raw = 0xC2000601U;
+        TEST_ASSERT(id.isFastCall() == true,  "0xC2000601 must be a Fast Call");
+        TEST_ASSERT(id.is64bit()    == true,  "0xC2000601 must be SMC64");
+        TEST_ASSERT(id.owner()      == 0x02,  "0xC2000601 owner must be 0x02 (SIP)");
+        TEST_ASSERT(id.service()    == 0x06,  "0xC2000601 service must be 0x06 (Boot)");
+        TEST_ASSERT(id.command()    == 0x01,  "0xC2000601 command must be 0x01 (BOOT_ADDR_MC)");
+    }
+
+    // --- Test 2: Dispatcher without services returns NOT_SUPPORTED ---
+    {
+        firmware::SmcDispatcher dispatcher;
+        firmware::SmcResult result = dispatcher.dispatch(0xC2000601ULL);
+        TEST_ASSERT(!result.handled,
+            "Empty dispatcher must return handled=false for any call");
+        TEST_ASSERT(result.x0 == firmware::SMCCC_RET_NOT_SUPPORTED,
+            "Empty dispatcher must return SMCCC_RET_NOT_SUPPORTED");
+    }
+
+    // --- Test 3: QcomBootService registered — serviceCount = 1 ---
+    {
+        firmware::SmcDispatcher dispatcher;
+        dispatcher.registerService(std::make_unique<firmware::QcomBootService>());
+        TEST_ASSERT(dispatcher.serviceCount() == 1,
+            "Dispatcher must have exactly 1 registered service after registration");
+    }
+
+    // --- Test 4: QCOM_SCM_BOOT_ADDR_MC dispatched and returns SUCCESS ---
+    {
+        firmware::SmcDispatcher dispatcher;
+        dispatcher.registerService(std::make_unique<firmware::QcomBootService>());
+
+        constexpr uint64_t warmBootAddr = 0xFFFFFF8008090000ULL;
+        firmware::SmcResult result = dispatcher.dispatch(
+            0xC2000601ULL,   // x0 = SMC ID
+            warmBootAddr,    // x1 = physical entry point
+            ~0ULL,           // x2 = CPU affinity mask
+            ~0ULL,           // x3
+            ~0ULL,           // x4
+            ~0ULL,           // x5
+            0ULL             // x6 = flags
+        );
+
+        TEST_ASSERT(result.handled,
+            "QCOM_SCM_BOOT_ADDR_MC must be handled by QcomBootService");
+        TEST_ASSERT(result.x0 == firmware::SMCCC_RET_SUCCESS,
+            "QCOM_SCM_BOOT_ADDR_MC must return X0 = 0 (SMCCC_RET_SUCCESS)");
+    }
+
+    // --- Test 5: Unknown command in boot service returns NOT_SUPPORTED ---
+    {
+        firmware::SmcDispatcher dispatcher;
+        dispatcher.registerService(std::make_unique<firmware::QcomBootService>());
+
+        // 0xC2000699 — valid owner+service but unknown command 0x99
+        firmware::SmcResult result = dispatcher.dispatch(0xC2000699ULL);
+        TEST_ASSERT(!result.handled,
+            "Unknown boot service command must return handled=false");
+        TEST_ASSERT(result.x0 == firmware::SMCCC_RET_NOT_SUPPORTED,
+            "Unknown boot service command must return SMCCC_RET_NOT_SUPPORTED");
+    }
+
+    // --- Test 6: Completely unknown SMC ID returns NOT_SUPPORTED ---
+    {
+        firmware::SmcDispatcher dispatcher;
+        dispatcher.registerService(std::make_unique<firmware::QcomBootService>());
+
+        // 0x84000001 — ARM SMCCC Version call (unrelated owner)
+        firmware::SmcResult result = dispatcher.dispatch(0x84000001ULL);
+        TEST_ASSERT(!result.handled,
+            "Unknown owner SMC call must return handled=false");
+        TEST_ASSERT(result.x0 == firmware::SMCCC_RET_NOT_SUPPORTED,
+            "Unknown owner SMC call must return SMCCC_RET_NOT_SUPPORTED");
+    }
+
+    // --- Test 7: SmcId::toString() produces a non-empty readable string ---
+    {
+        firmware::SmcId id;
+        id.raw = 0xC2000601U;
+        std::string s = id.toString();
+        TEST_ASSERT(!s.empty(),
+            "SmcId::toString() must return a non-empty string");
+        TEST_ASSERT(s.find("C2000601") != std::string::npos,
+            "SmcId::toString() must contain the raw hex value");
     }
 
     std::cout << "======================================\n";
