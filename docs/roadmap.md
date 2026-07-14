@@ -24,23 +24,16 @@ This document outlines the development roadmap of the CustomAndroidEmulator proj
     - BootSession stats logger.
 - [ ] **Phase 6: Hardware Compatibility Layer**
     - Bridging Qualcomm registers to VirtIO block devices.
-    - DTB/DTBO device tree overlays merger.
     - Slot suffix commandline mapping.
 - [ ] **Phase 7: Virtual Device Framework**
-    - Framebuffer/graphics setup.
-    - Virtual keyboard/touchscreen devices.
-- [ ] **Phase 8: Graphics & Display**
-    - SDL displays rendering window.
-    - GPU acceleration.
-- [ ] **Phase 9: ADB & Debugging**
-    - ADB bridge connectivity.
-    - Remote console shells.
-- [ ] **Phase 10: Android Userspace**
-    - Mounting raw system/vendor partitions.
-    - Handling Android init scripts.
-- [ ] **Phase 11: ROM Compatibility**
-    - GKI (Generic Kernel Image) support.
-    - Dynamic partition slots.
-- [ ] **Phase 12: Performance & Optimization**
-    - Virtual virtualization flags (KVM/WHPX).
-    - Timing benchmarks.
+    - Abstract devices: serial, timers, battery, and RTC clocks setups.
+- [ ] **Phase 8: Device Tree & Boot Configuration**
+    - DTB/DTBO device tree overlays parsing and merger.
+- [ ] **Phase 9: Android Userspace Initialization**
+    - Root filesystem mounting and SELinux checks bypasses.
+- [ ] **Phase 10: Graphics & Input**
+    - Framebuffer setups, SDL UI windows, and virtual touchscreens.
+- [ ] **Phase 11: ADB, Debugging & Developer Tools**
+    - ADB bridge connectivity and remote debugging consoles.
+- [ ] **Phase 12: Performance & ROM Compatibility**
+    - WHPX/KVM virtualization acceleration configurations.
