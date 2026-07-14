@@ -1,5 +1,6 @@
 #include "mainwindow.h"
-#include "rom_card.h"
+#include "core/logger.h"
+#include "image_parser/image_parser.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -7,24 +8,27 @@
 #include <QInputDialog>
 #include <QProgressDialog>
 #include <QCoreApplication>
-#include <QPushButton>
-#include <QGroupBox>
-#include <spdlog/spdlog.h>
+#include <QHeaderView>
+#include <QTimer>
+#include <QFormLayout>
+#include <filesystem>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent) {
     setWindowTitle("Custom Android Emulator");
-    resize(960, 600);
-    setMinimumSize(800, 500);
+    resize(850, 520);
+    setMinimumSize(700, 400);
 
-    // Initializing RomManager pointing to "roms" directory in application path
     QString romsDir = QCoreApplication::applicationDirPath() + "/roms";
-    spdlog::info("ROMs base directory: {}", romsDir.toStdString());
     m_romManager = std::make_unique<RomManager>(romsDir.toStdString());
 
     setupUi();
-    applyTheme();
-    loadInstalledRoms();
+    
+    // Set first sidebar item selected
+    m_sidebarList->setCurrentRow(0);
+    
+    loadRomsList();
+    updateDashboardStats();
 }
 
 void MainWindow::setupUi() {
@@ -32,198 +36,179 @@ void MainWindow::setupUi() {
     setCentralWidget(centralWidget);
 
     auto* mainLayout = new QHBoxLayout(centralWidget);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->setSpacing(0);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+    mainLayout->setSpacing(10);
 
-    // Sidebar Layout (Left Pane)
-    auto* sidebarWidget = new QWidget(this);
-    sidebarWidget->setObjectName("Sidebar");
-    sidebarWidget->setFixedWidth(260);
-
-    auto* sidebarLayout = new QVBoxLayout(sidebarWidget);
-    sidebarLayout->setContentsMargins(24, 30, 24, 30);
-    sidebarLayout->setSpacing(16);
-
-    // App Brand Logo/Header
-    auto* brandLayout = new QVBoxLayout();
-    brandLayout->setSpacing(4);
+    // 1. Sidebar (Left navigation pane)
+    m_sidebarList = new QListWidget(this);
+    m_sidebarList->setFixedWidth(180);
+    m_sidebarList->addItem("Dashboard");
+    m_sidebarList->addItem("ROMs");
+    m_sidebarList->addItem("Settings");
+    m_sidebarList->addItem("Logs");
+    m_sidebarList->addItem("About");
     
-    auto* logoLabel = new QLabel("Antigravity", this);
-    logoLabel->setObjectName("BrandLogo");
-    logoLabel->setStyleSheet("font-size: 12px; font-weight: bold; color: #00e5ff; letter-spacing: 2px; text-transform: uppercase;");
-    brandLayout->addWidget(logoLabel);
+    connect(m_sidebarList, &QListWidget::currentItemChanged, this, &MainWindow::onSidebarSelectionChanged);
+    mainLayout->addWidget(m_sidebarList);
 
-    auto* titleLabel = new QLabel("ROM Launcher", this);
-    titleLabel->setObjectName("HeaderTitle");
-    titleLabel->setStyleSheet("font-size: 22px; font-weight: 800; color: #ffffff;");
-    brandLayout->addWidget(titleLabel);
+    // 2. Stacked Widget (Right content pane)
+    m_stackedWidget = new QStackedWidget(this);
+    mainLayout->addWidget(m_stackedWidget);
 
-    auto* subtitleLabel = new QLabel("v0.1.0 (Foundation)", this);
-    subtitleLabel->setObjectName("HeaderSubtitle");
-    subtitleLabel->setStyleSheet("font-size: 11px; color: #6a6a7a;");
-    brandLayout->addWidget(subtitleLabel);
+    setupDashboardPage();
+    setupRomsPage();
+    setupSettingsPage();
+    setupLogsPage();
+    setupAboutPage();
 
-    sidebarLayout->addLayout(brandLayout);
-    sidebarLayout->addSpacing(30);
+    // 3. Status Bar at the bottom
+    m_statusLabel = new QLabel("Status: Ready", this);
+    statusBar()->addWidget(m_statusLabel);
+}
 
-    // Sidebar Action Buttons
+void MainWindow::onSidebarSelectionChanged(QListWidgetItem* current, QListWidgetItem* previous) {
+    if (!current) return;
+    
+    QString text = current->text();
+    if (text == "Dashboard") {
+        m_stackedWidget->setCurrentIndex(0);
+        updateDashboardStats();
+    } else if (text == "ROMs") {
+        m_stackedWidget->setCurrentIndex(1);
+        loadRomsList();
+    } else if (text == "Settings") {
+        m_stackedWidget->setCurrentIndex(2);
+    } else if (text == "Logs") {
+        m_stackedWidget->setCurrentIndex(3);
+        refreshLogPanel();
+    } else if (text == "About") {
+        m_stackedWidget->setCurrentIndex(4);
+    }
+}
+
+// -------------------------------------------------------------
+// Page 1: Dashboard Setup
+// -------------------------------------------------------------
+void MainWindow::setupDashboardPage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(15);
+
+    auto* titleLabel = new QLabel("Emulator Dashboard", this);
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(16);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    layout->addWidget(titleLabel);
+
+    auto* descLabel = new QLabel("Welcome to CustomAndroidEmulator launcher interface.", this);
+    layout->addWidget(descLabel);
+
+    auto* infoGroupBox = new QWidget(this);
+    auto* gridLayout = new QGridLayout(infoGroupBox);
+    gridLayout->setSpacing(10);
+
+    gridLayout->addWidget(new QLabel("Total ROMs Installed:", this), 0, 0);
+    m_dashTotalRomsLabel = new QLabel("0", this);
+    m_dashTotalRomsLabel->setStyleSheet("font-weight: bold;");
+    gridLayout->addWidget(m_dashTotalRomsLabel, 0, 1);
+
+    gridLayout->addWidget(new QLabel("Storage Directory:", this), 1, 0);
+    QString romsDir = QCoreApplication::applicationDirPath() + "/roms";
+    auto* dirLabel = new QLabel(romsDir, this);
+    gridLayout->addWidget(dirLabel, 1, 1);
+
+    gridLayout->addWidget(new QLabel("Target Platform:", this), 2, 0);
+    gridLayout->addWidget(new QLabel("Windows x86_64", this), 2, 1);
+
+    gridLayout->addWidget(new QLabel("Virtualization Engine:", this), 3, 0);
+    gridLayout->addWidget(new QLabel("QEMU Emulator Backend (Pending Phase 3)", this), 3, 1);
+
+    layout->addWidget(infoGroupBox);
+    layout->addStretch();
+    
+    m_stackedWidget->addWidget(page);
+}
+
+void MainWindow::updateDashboardStats() {
+    auto roms = m_romManager->getInstalledRoms();
+    m_dashTotalRomsLabel->setText(QString::number(roms.size()));
+}
+
+// -------------------------------------------------------------
+// Page 2: ROMs Setup (Simple native list grid table)
+// -------------------------------------------------------------
+void MainWindow::setupRomsPage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(10);
+
+    auto* titleLabel = new QLabel("Installed ROM Packages", this);
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(16);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    layout->addWidget(titleLabel);
+
+    m_romsTable = new QTableWidget(this);
+    m_romsTable->setColumnCount(5);
+    m_romsTable->setHorizontalHeaderLabels({"ROM Name", "Target Device", "Codename", "Android Version", "Partition Layout"});
+    m_romsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_romsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_romsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_romsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    layout->addWidget(m_romsTable);
+
+    // Actions block under list
+    auto* actionLayout = new QHBoxLayout();
+    actionLayout->setSpacing(10);
+
     auto* installBtn = new QPushButton("Install ROM", this);
-    installBtn->setObjectName("SidebarButton");
     connect(installBtn, &QPushButton::clicked, this, &MainWindow::onInstallRomClicked);
-    sidebarLayout->addWidget(installBtn);
+    actionLayout->addWidget(installBtn);
 
-    auto* settingsBtn = new QPushButton("Settings", this);
-    settingsBtn->setObjectName("SidebarButton");
-    connect(settingsBtn, &QPushButton::clicked, this, &MainWindow::onSettingsClicked);
-    sidebarLayout->addWidget(settingsBtn);
+    m_launchBtn = new QPushButton("Launch", this);
+    m_launchBtn->setEnabled(false);
+    m_launchBtn->setToolTip("Virtualization engine is integration work for Phase 3");
+    connect(m_launchBtn, &QPushButton::clicked, this, &MainWindow::onLaunchClicked);
+    actionLayout->addWidget(m_launchBtn);
 
-    sidebarLayout->addStretch();
+    m_removeBtn = new QPushButton("Remove", this);
+    connect(m_removeBtn, &QPushButton::clicked, this, &MainWindow::onRemoveClicked);
+    actionLayout->addWidget(m_removeBtn);
 
-    auto* exitBtn = new QPushButton("Exit Application", this);
-    exitBtn->setObjectName("ExitButton");
-    connect(exitBtn, &QPushButton::clicked, this, &MainWindow::close);
-    sidebarLayout->addWidget(exitBtn);
+    m_infoBtn = new QPushButton("ROM Info", this);
+    connect(m_infoBtn, &QPushButton::clicked, this, &MainWindow::onRomInfoClicked);
+    actionLayout->addWidget(m_infoBtn);
 
-    mainLayout->addWidget(sidebarWidget);
+    auto* refreshBtn = new QPushButton("Refresh", this);
+    connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::onRefreshClicked);
+    actionLayout->addWidget(refreshBtn);
 
-    // Content Layout (Right Pane)
-    auto* contentWidget = new QWidget(this);
-    contentWidget->setObjectName("ContentPane");
-    
-    auto* contentLayout = new QVBoxLayout(contentWidget);
-    contentLayout->setContentsMargins(30, 30, 30, 30);
-    contentLayout->setSpacing(20);
-
-    // Section title
-    auto* sectionTitle = new QLabel("Installed ROMs", this);
-    sectionTitle->setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;");
-    contentLayout->addWidget(sectionTitle);
-
-    // Scroll Area for ROM cards
-    m_scrollArea = new QScrollArea(this);
-    m_scrollArea->setWidgetResizable(true);
-    
-    m_cardsContainer = new QWidget(m_scrollArea);
-    m_cardsContainer->setObjectName("CardsContainer");
-    
-    m_cardsLayout = new QGridLayout(m_cardsContainer);
-    m_cardsLayout->setContentsMargins(4, 4, 4, 4);
-    m_cardsLayout->setSpacing(16);
-    
-    m_scrollArea->setWidget(m_cardsContainer);
-    contentLayout->addWidget(m_scrollArea);
-
-    // No ROMs Status Label
-    m_noRomsLabel = new QLabel("No ROMs Installed\n\nClick 'Install ROM' in the sidebar to add a custom ROM ZIP package.", this);
-    m_noRomsLabel->setAlignment(Qt::AlignCenter);
-    m_noRomsLabel->setObjectName("NoRomsLabel");
-    m_noRomsLabel->setStyleSheet("font-size: 14px; color: #7a7a8a; line-height: 1.5;");
-    contentLayout->addWidget(m_noRomsLabel);
-
-    mainLayout->addWidget(contentWidget);
+    layout->addLayout(actionLayout);
+    m_stackedWidget->addWidget(page);
 }
 
-void MainWindow::applyTheme() {
-    setStyleSheet(R"(
-        QMainWindow {
-            background-color: #0f0f12;
-        }
-        QWidget#Sidebar {
-            background-color: #15151c;
-            border-right: 1px solid #20202a;
-        }
-        QWidget#ContentPane {
-            background-color: #0f0f12;
-        }
-        QWidget#CardsContainer {
-            background-color: transparent;
-        }
-        QScrollArea {
-            border: none;
-            background-color: transparent;
-        }
-        QPushButton#SidebarButton {
-            background-color: #1e1e26;
-            border: 1px solid #2d2d3a;
-            border-radius: 8px;
-            color: #ffffff;
-            padding: 12px 18px;
-            font-size: 13px;
-            font-weight: bold;
-            text-align: left;
-        }
-        QPushButton#SidebarButton:hover {
-            background-color: #262634;
-            border: 1px solid #00e5ff;
-        }
-        QPushButton#ExitButton {
-            background-color: rgba(255, 23, 68, 0.08);
-            border: 1px solid rgba(255, 23, 68, 0.25);
-            border-radius: 8px;
-            color: #ff1744;
-            padding: 12px 18px;
-            font-size: 13px;
-            font-weight: bold;
-        }
-        QPushButton#ExitButton:hover {
-            background-color: rgba(255, 23, 68, 0.18);
-            border: 1px solid #ff1744;
-        }
-        
-        /* Scrollbar styling */
-        QScrollBar:vertical {
-            background-color: #121216;
-            width: 8px;
-            border-radius: 4px;
-        }
-        QScrollBar::handle:vertical {
-            background-color: #3e3e4a;
-            min-height: 20px;
-            border-radius: 4px;
-        }
-        QScrollBar::handle:vertical:hover {
-            background-color: #00e5ff;
-        }
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-            height: 0;
-        }
-    )");
-}
+void MainWindow::loadRomsList() {
+    m_romsTable->setRowCount(0);
+    
+    auto roms = m_romManager->getInstalledRoms();
+    m_romsTable->setRowCount(static_cast<int>(roms.size()));
 
-void MainWindow::loadInstalledRoms() {
-    // Clear existing card widgets
-    QLayoutItem* child;
-    while ((child = m_cardsLayout->takeAt(0)) != nullptr) {
-        if (child->widget()) {
-            child->widget()->deleteLater();
-        }
-        delete child;
+    for (size_t i = 0; i < roms.size(); ++i) {
+        m_romsTable->setItem(i, 0, new QTableWidgetItem(QString::fromStdString(roms[i].name)));
+        m_romsTable->setItem(i, 1, new QTableWidgetItem(QString::fromStdString(roms[i].device)));
+        m_romsTable->setItem(i, 2, new QTableWidgetItem(QString::fromStdString(roms[i].codename)));
+        m_romsTable->setItem(i, 3, new QTableWidgetItem(QString::fromStdString(roms[i].androidVersion)));
+        m_romsTable->setItem(i, 4, new QTableWidgetItem(QString::fromStdString(roms[i].partitionLayout)));
     }
-
-    std::vector<RomMetadata> roms = m_romManager->getInstalledRoms();
-    spdlog::info("Loaded {} installed ROMs", roms.size());
-
-    if (roms.empty()) {
-        m_noRomsLabel->setVisible(true);
-        m_scrollArea->setVisible(false);
-    } else {
-        m_noRomsLabel->setVisible(false);
-        m_scrollArea->setVisible(true);
-
-        int columnCount = 2; // Display 2 columns of cards
-        for (size_t i = 0; i < roms.size(); ++i) {
-            auto* card = new RomCard(roms[i], m_cardsContainer);
-            connect(card, &RomCard::uninstallRequested, this, &MainWindow::onUninstallRequested);
-            connect(card, &RomCard::infoRequested, this, &MainWindow::onInfoRequested);
-
-            int row = static_cast<int>(i) / columnCount;
-            int col = static_cast<int>(i) % columnCount;
-            m_cardsLayout->addWidget(card, row, col);
-        }
-        
-        // Add stretch row at the end to keep cards top-aligned
-        m_cardsLayout->setRowStretch(static_cast<int>((roms.size() - 1) / columnCount) + 1, 1);
-    }
+    
+    // Enable/disable buttons based on count
+    bool hasRows = roms.size() > 0;
+    m_removeBtn->setEnabled(hasRows);
+    m_infoBtn->setEnabled(hasRows);
 }
 
 void MainWindow::onInstallRomClicked() {
@@ -232,20 +217,25 @@ void MainWindow::onInstallRomClicked() {
 
     RomMetadata meta;
     std::string error;
+    m_statusLabel->setText("Status: Validating zip...");
+    QCoreApplication::processEvents();
+
     if (!m_romManager->validateRomZip(zipPath.toStdString(), meta, error)) {
         QMessageBox::critical(this, "Invalid ROM Package", 
-            QString("The selected ZIP file is not a valid Android custom ROM package.\n\nError: %1").arg(QString::fromStdString(error)));
+            QString("The selected ZIP file is not a valid Android custom ROM.\n\nError: %1").arg(QString::fromStdString(error)));
+        m_statusLabel->setText("Status: Validation failed");
         return;
     }
 
     QString details = QString(
         "A valid custom ROM package was detected!\n\n"
-        "Device: %1\n"
-        "Android Version: %2\n"
-        "Architecture: %3\n\n"
+        "Name: %1\n"
+        "Device: %2\n"
+        "Android Version: %3\n"
+        "Architecture: %4\n\n"
         "Would you like to install it now?\n"
-        "(This will extract partition images into your local workspace)"
-    ).arg(QString::fromStdString(meta.device), QString::fromStdString(meta.androidVersion), QString::fromStdString(meta.architecture));
+        "(This will extract partition images into the emulator directory and run details inspection)"
+    ).arg(QString::fromStdString(meta.name), QString::fromStdString(meta.device), QString::fromStdString(meta.androidVersion), QString::fromStdString(meta.architecture));
 
     QMessageBox::StandardButton reply = QMessageBox::question(
         this, "Confirm ROM Installation", details, QMessageBox::Yes | QMessageBox::No
@@ -255,12 +245,16 @@ void MainWindow::onInstallRomClicked() {
         bool ok;
         QString defaultName = QString::fromStdString(meta.name);
         QString romName = QInputDialog::getText(
-            this, "ROM Name", "Enter a custom name for this ROM installation:", 
+            this, "ROM Name", "Enter a name for this ROM installation:", 
             QLineEdit::Normal, defaultName, &ok
         );
-        if (!ok || romName.trimmed().isEmpty()) return;
+        if (!ok || romName.trimmed().isEmpty()) {
+            m_statusLabel->setText("Status: Installation cancelled");
+            return;
+        }
 
-        QProgressDialog progress("Extracting ROM images, please wait...", nullptr, 0, 0, this);
+        m_statusLabel->setText("Status: Extracting & parsing images...");
+        QProgressDialog progress("Extracting images & parsing headers, please wait...", nullptr, 0, 0, this);
         progress.setWindowModality(Qt::WindowModal);
         progress.setMinimumDuration(0);
         progress.show();
@@ -271,62 +265,220 @@ void MainWindow::onInstallRomClicked() {
         progress.close();
 
         if (success) {
-            QMessageBox::information(this, "Installation Complete", 
-                QString("ROM '%1' has been successfully installed!").arg(romName));
-            loadInstalledRoms();
+            QMessageBox::information(this, "Installation Complete", QString("ROM '%1' has been successfully installed and parsed!").arg(romName));
+            m_statusLabel->setText("Status: Ready");
+            loadRomsList();
         } else {
-            QMessageBox::critical(this, "Installation Failed", 
-                QString("An error occurred during ROM installation:\n\n%1").arg(QString::fromStdString(installError)));
+            QMessageBox::critical(this, "Installation Failed", QString("An error occurred during ROM installation:\n\n%1").arg(QString::fromStdString(installError)));
+            m_statusLabel->setText("Status: Installation failed");
         }
+    } else {
+        m_statusLabel->setText("Status: Ready");
     }
 }
 
-void MainWindow::onSettingsClicked() {
-    QString romsDir = QCoreApplication::applicationDirPath() + "/roms";
-    QString settingsInfo = QString(
-        "Custom Android Emulator Settings\n\n"
-        "ROMs Directory:\n%1\n\n"
-        "Later phases will allow configuring QEMU paths, partition allocations, and virtual CPU cores."
-    ).arg(romsDir);
-
-    QMessageBox::information(this, "Settings", settingsInfo);
+void MainWindow::onLaunchClicked() {
+    // Emulator launch logic placeholder
 }
 
-void MainWindow::onUninstallRequested(const std::string& romName) {
+void MainWindow::onRemoveClicked() {
+    int row = m_romsTable->currentRow();
+    if (row < 0) {
+        QMessageBox::warning(this, "No Selection", "Please select a ROM from the table to remove.");
+        return;
+    }
+
+    std::string name = m_romsTable->item(row, 0)->text().toStdString();
+    
     QMessageBox::StandardButton reply = QMessageBox::question(
         this, "Uninstall ROM", 
-        QString("Are you sure you want to uninstall '%1'?\nThis will permanently delete all extracted image files for this ROM.").arg(QString::fromStdString(romName)),
+        QString("Are you sure you want to uninstall '%1'?\nThis will permanently delete all extracted image files for this ROM.").arg(QString::fromStdString(name)),
         QMessageBox::Yes | QMessageBox::No
     );
 
     if (reply == QMessageBox::Yes) {
         std::string error;
-        if (m_romManager->uninstallRom(romName, error)) {
-            QMessageBox::information(this, "Uninstalled", QString("ROM '%1' has been uninstalled.").arg(QString::fromStdString(romName)));
-            loadInstalledRoms();
+        m_statusLabel->setText("Status: Removing files...");
+        if (m_romManager->uninstallRom(name, error)) {
+            QMessageBox::information(this, "Uninstalled", QString("ROM '%1' has been uninstalled.").arg(QString::fromStdString(name)));
+            m_statusLabel->setText("Status: Ready");
+            loadRomsList();
         } else {
             QMessageBox::critical(this, "Error", QString("Failed to uninstall ROM:\n\n%1").arg(QString::fromStdString(error)));
+            m_statusLabel->setText("Status: Error removing files");
         }
     }
 }
 
-void MainWindow::onInfoRequested(const RomMetadata& meta) {
-    QString info = QString(
-        "ROM Details:\n\n"
-        "Name: %1\n"
-        "Device: %2\n"
-        "Android Version: %3\n"
-        "Architecture: %4\n"
-        "Status: %5\n\n"
-        "Location: %6/roms/%1"
-    ).arg(
-        QString::fromStdString(meta.name),
-        QString::fromStdString(meta.device),
-        QString::fromStdString(meta.androidVersion),
-        QString::fromStdString(meta.architecture),
-        QString::fromStdString(meta.status),
-        QCoreApplication::applicationDirPath()
-    );
+void MainWindow::onRefreshClicked() {
+    loadRomsList();
+    m_statusLabel->setText("Status: Refreshed");
+}
 
-    QMessageBox::information(this, "ROM Details", info);
+void MainWindow::onRomInfoClicked() {
+    int row = m_romsTable->currentRow();
+    if (row < 0) {
+        QMessageBox::warning(this, "No Selection", "Please select a ROM from the table to inspect details.");
+        return;
+    }
+
+    std::string name = m_romsTable->item(row, 0)->text().toStdString();
+    auto roms = m_romManager->getInstalledRoms();
+    
+    auto it = std::find_if(roms.begin(), roms.end(), [&name](const RomMetadata& m) {
+        return m.name == name;
+    });
+
+    if (it != roms.end()) {
+        const auto& meta = *it;
+        
+        QString imagesListStr = "None";
+        if (!meta.images.empty()) {
+            imagesListStr = "";
+            for (const auto& img : meta.images) {
+                imagesListStr += " - " + QString::fromStdString(img) + "\n";
+            }
+        }
+
+        QString info = QString(
+            "Detailed ROM Information (Parsed in Phase 2):\n\n"
+            "ROM Name: %1\n"
+            "Device Model: %2\n"
+            "Codename / Board: %3\n"
+            "OS / Android version: %4\n"
+            "Architecture: %5\n"
+            "Kernel Release: %6\n"
+            "Partition Layout: %7\n"
+            "Verified Boot (AVB): %8\n"
+            "Metadata Version: %9\n\n"
+            "Extracted Image Files:\n%10"
+        ).arg(
+            QString::fromStdString(meta.name),
+            QString::fromStdString(meta.device),
+            QString::fromStdString(meta.codename),
+            QString::fromStdString(meta.androidVersion),
+            QString::fromStdString(meta.architecture),
+            QString::fromStdString(meta.kernel),
+            QString::fromStdString(meta.partitionLayout),
+            QString::fromStdString(meta.avbStatus),
+            QString::number(meta.metadataVersion),
+            imagesListStr
+        );
+
+        QMessageBox::information(this, "Detailed ROM Inspection", info);
+    }
+}
+
+// -------------------------------------------------------------
+// Page 3: Settings Setup
+// -------------------------------------------------------------
+void MainWindow::setupSettingsPage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(15);
+
+    auto* titleLabel = new QLabel("System Settings", this);
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(16);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    layout->addWidget(titleLabel);
+
+    auto* formLayout = new QFormLayout();
+    formLayout->setSpacing(10);
+
+    QString romsDir = QCoreApplication::applicationDirPath() + "/roms";
+    formLayout->addRow("ROMs Storage Path:", new QLabel(romsDir, this));
+    formLayout->addRow("Default RAM Allocation:", new QLabel("4096 MB", this));
+    formLayout->addRow("Virtual CPU Cores:", new QLabel("4 Cores", this));
+    formLayout->addRow("Emulation Target:", new QLabel("ARM64 (aarch64)", this));
+    formLayout->addRow("Display Mode:", new QLabel("SDL Display (GPU Accelerated)", this));
+
+    layout->addLayout(formLayout);
+    layout->addStretch();
+    
+    m_stackedWidget->addWidget(page);
+}
+
+// -------------------------------------------------------------
+// Page 4: Logs Panel Setup
+// -------------------------------------------------------------
+void MainWindow::setupLogsPage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(10);
+
+    auto* titleLabel = new QLabel("System Execution Logs", this);
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(16);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    layout->addWidget(titleLabel);
+
+    m_logsTextEdit = new QTextEdit(this);
+    m_logsTextEdit->setReadOnly(true);
+    // Use monospace font for logs
+    QFont monoFont("Courier New");
+    monoFont.setStyleHint(QFont::Monospace);
+    m_logsTextEdit->setFont(monoFont);
+    layout->addWidget(m_logsTextEdit);
+
+    auto* refreshBtn = new QPushButton("Refresh Logs", this);
+    connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::refreshLogPanel);
+    layout->addWidget(refreshBtn);
+
+    m_stackedWidget->addWidget(page);
+}
+
+void MainWindow::refreshLogPanel() {
+    // Read the log file if available, otherwise print fallback
+    QString logPath = QCoreApplication::applicationDirPath() + "/logs/launcher.log";
+    std::ifstream in(logPath.toStdString());
+    if (in) {
+        std::stringstream ss;
+        ss << in.rdbuf();
+        m_logsTextEdit->setPlainText(QString::fromStdString(ss.str()));
+    } else {
+        m_logsTextEdit->setPlainText("[System Logging Output]\nLogs are printed to stdout console.\nInitialize simulator to view tracing details.");
+    }
+}
+
+// -------------------------------------------------------------
+// Page 5: About Setup
+// -------------------------------------------------------------
+void MainWindow::setupAboutPage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(20, 20, 20, 20);
+    layout->setSpacing(15);
+
+    auto* titleLabel = new QLabel("About CustomAndroidEmulator", this);
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(16);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    layout->addWidget(titleLabel);
+
+    auto* aboutText = new QLabel(
+        "CustomAndroidEmulator Launcher\n"
+        "Version 0.2.0 (Phase 2: Image Parsing)\n\n"
+        "An ambitious systems-programming project aiming to run custom Android ROM packages "
+        "inside a dynamic virtualization environment on Windows using a modular QEMU backend.\n\n"
+        "Features completed:\n"
+        " - Generic ROM zip package installation and unpacking\n"
+        " - Android boot.img header parsing (v0-v4 structures, OS version decoding, kernel signature search)\n"
+        " - AVB 2.0 (Verified Boot) vbmeta.img flag checking\n"
+        " - Android A/B OTA payload.bin header validation and partition list extraction\n"
+        " - Dynamic super partition (liblp) geometry validation\n"
+        " - EXT4 filesystem image checks (superblock signature validation)\n\n"
+        "Developed by Antigravity paired with USER.",
+        this
+    );
+    aboutText->setWordWrap(true);
+    layout->addWidget(aboutText);
+
+    layout->addStretch();
+    m_stackedWidget->addWidget(page);
 }

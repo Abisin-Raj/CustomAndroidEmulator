@@ -1,9 +1,12 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QListWidget>
+#include <QStackedWidget>
+#include <QTableWidget>
+#include <QTextEdit>
 #include <QLabel>
-#include <QScrollArea>
-#include <QGridLayout>
+#include <QPushButton>
 #include <memory>
 #include "rom_manager/rom_manager.h"
 
@@ -14,20 +17,48 @@ public:
     ~MainWindow() override = default;
 
 private slots:
+    void onSidebarSelectionChanged(QListWidgetItem* current, QListWidgetItem* previous);
+    
+    // ROM actions
     void onInstallRomClicked();
-    void onSettingsClicked();
-    void onUninstallRequested(const std::string& romName);
-    void onInfoRequested(const RomMetadata& meta);
+    void onLaunchClicked();
+    void onRemoveClicked();
+    void onRefreshClicked();
+    void onRomInfoClicked();
+    
+    // Helpers to update page content
+    void refreshLogPanel();
+    void updateDashboardStats();
 
 private:
     void setupUi();
-    void loadInstalledRoms();
-    void applyTheme();
+    void setupDashboardPage();
+    void setupRomsPage();
+    void setupSettingsPage();
+    void setupLogsPage();
+    void setupAboutPage();
+    
+    void loadRomsList();
 
     std::unique_ptr<RomManager> m_romManager;
-
-    QWidget* m_cardsContainer = nullptr;
-    QGridLayout* m_cardsLayout = nullptr;
-    QLabel* m_noRomsLabel = nullptr;
-    QScrollArea* m_scrollArea = nullptr;
+    
+    // UI components
+    QListWidget* m_sidebarList = nullptr;
+    QStackedWidget* m_stackedWidget = nullptr;
+    
+    // Page 1: Dashboard
+    QLabel* m_dashTotalRomsLabel = nullptr;
+    QLabel* m_dashSummaryText = nullptr;
+    
+    // Page 2: ROMs
+    QTableWidget* m_romsTable = nullptr;
+    QPushButton* m_launchBtn = nullptr;
+    QPushButton* m_removeBtn = nullptr;
+    QPushButton* m_infoBtn = nullptr;
+    
+    // Page 4: Logs
+    QTextEdit* m_logsTextEdit = nullptr;
+    
+    // Status Bar
+    QLabel* m_statusLabel = nullptr;
 };

@@ -1,14 +1,14 @@
 #include <QApplication>
-#include <spdlog/spdlog.h>
+#include "core/logger.h"
 #include "mainwindow.h"
 
 int main(int argc, char* argv[]) {
-    // Configure spdlog logging pattern
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
-    spdlog::info("Starting CustomAndroidEmulator launcher...");
+    // Initialize shared logging system
+    core::initLogger();
+    LOG_INFO("Initializing launcher UI...");
 
     QApplication app(argc, argv);
-    
+
     MainWindow mainWindow;
     mainWindow.show();
 
