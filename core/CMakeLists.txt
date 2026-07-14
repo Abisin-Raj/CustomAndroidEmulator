@@ -1,5 +1,7 @@
 add_library(core STATIC
     src/logger.cpp
+    src/utils.cpp
+    src/config_manager.cpp
 )
 
 target_include_directories(core PUBLIC
@@ -9,4 +11,5 @@ target_include_directories(core PUBLIC
 
 target_link_libraries(core PUBLIC
     spdlog::spdlog
+    nlohmann_json::nlohmann_json
 )

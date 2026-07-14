@@ -2,6 +2,7 @@
 #include <concepts>
 #include <bit>
 #include <cstdint>
+#include <filesystem>
 
 namespace core {
 
@@ -61,5 +62,7 @@ constexpr T leToHost(T val) {
         return val;
     }
 }
+
+std::filesystem::path getExecutableDir();
 
 } // namespace core

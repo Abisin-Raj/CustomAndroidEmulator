@@ -25,6 +25,12 @@
 #define LOG_BOOT_ERROR(...)     spdlog::error("[Boot] " __VA_ARGS__)
 #define LOG_BOOT_DEBUG(...)     spdlog::debug("[Boot] " __VA_ARGS__)
 
+// QEMU category loggers
+#define LOG_QEMU_INFO(...)      spdlog::info("[QEMU] " __VA_ARGS__)
+#define LOG_QEMU_WARN(...)      spdlog::warn("[QEMU] " __VA_ARGS__)
+#define LOG_QEMU_ERROR(...)     spdlog::error("[QEMU] " __VA_ARGS__)
+#define LOG_QEMU_DEBUG(...)     spdlog::debug("[QEMU] " __VA_ARGS__)
+
 // Generic/Legacy fallback loggers
 #define LOG_INFO(...)  spdlog::info(__VA_ARGS__)
 #define LOG_WARN(...)  spdlog::warn(__VA_ARGS__)

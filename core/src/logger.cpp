@@ -1,28 +1,11 @@
 #include "core/logger.h"
+#include "core/utils.h"
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <filesystem>
 #include <vector>
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
 namespace core {
-
-namespace {
-
-std::filesystem::path getExecutableDir() {
-#ifdef _WIN32
-    wchar_t path[MAX_PATH];
-    GetModuleFileNameW(NULL, path, MAX_PATH);
-    return std::filesystem::path(path).parent_path();
-#else
-    return std::filesystem::current_path();
-#endif
-}
-
-} // namespace
 
 void initLogger() {
     std::vector<spdlog::sink_ptr> sinks;
