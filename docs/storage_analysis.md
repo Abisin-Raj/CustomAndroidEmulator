@@ -55,46 +55,48 @@ CONFIG_OF=y                      → hardware described entirely via Device Tree
 ```
 
 ### Current hypothesis
-The kernel expects the Qualcomm SDHCI-MSM controller declared in its Device Tree at
-a specific MMIO address. QEMU's `virt` board does not expose this controller, so no
-`mmcblk0` is ever created, and the VFS panic is guaranteed.
-
-**Confirmation pending Phase 6.2** (fstab inspection after image reconstruction).
+The kernel expects the Qualcomm SDHCI-MSM controller declared in its Device Tree at the MMIO address `0x07c4000` (probed by the `7c4000.sdhci` platform device driver). QEMU's `virt` board does not expose this controller, so no `/dev/block/platform/soc/7c4000.sdhci` is ever created, causing the VFS boot panic.
 
 ---
 
-## Phase 6.2 Targets — Filesystem Inspection
+## Phase 6.2 Targets — Filesystem & Recovery Inspection
 
-To be populated after `system.img` and `vendor.img` are reconstructed:
+### Recovery Image fstab & Init Analysis (Completed)
+- [x] `/system/etc/recovery.fstab` — primary fstab located inside `recovery.img`.
+- [x] `/init.recovery.qcom.rc` — qcom specific recovery scripts.
 
-### fstab analysis
-- [ ] `/vendor/etc/fstab.qcom` — primary fstab for Qualcomm devices
+**Verified Mount Configuration:**
+- **System Mount Point:** `/` (System-As-Root)
+- **Source Device:** `/dev/block/bootdevice/by-name/system` (ext4)
+- **Vendor Mount Point:** `/vendor`
+- **Source Device:** `/dev/block/bootdevice/by-name/vendor` (ext4)
+- **Platform Device Node Resolution:**
+  In `init.recovery.qcom.rc`:
+  ```rc
+  wait /dev/block/platform/soc/${ro.boot.bootdevice}
+  symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
+  ```
+  `vendor_file_contexts` confirms the absolute platform block path:
+  `/dev/block/platform/soc/7c4000.sdhci/by-name/...`
+  Thus, `ro.boot.bootdevice` is explicitly **`7c4000.sdhci`** (eMMC controller at `0x07c4000`).
+
+### Reconstructed system/vendor filesystem analysis (Pending system.img generation)
+- [ ] `/vendor/etc/fstab.qcom` — primary target system fstab
 - [ ] `/vendor/etc/fstab.violet` — device-specific override (if present)
-- [ ] `/system/etc/fstab.*` — system-level fstab entries
-
-**Key questions:**
-- What device path is specified for the root (`/`) mount?
-- What device path is specified for `/vendor`?
-- Are logical volumes (dm-*) or raw block devices used?
-
-### Init script analysis
-- [ ] `/init` binary — first-stage init entrypoint
-- [ ] `/init.rc` — primary init configuration
-- [ ] `/vendor/etc/init/` — vendor init fragments
-- [ ] `ueventd.rc`, `ueventd.violet.rc` — udev-equivalent device node creation rules
+- [ ] `/init` binary & `/init.rc` — first-stage init entrypoint & configurations
+- [ ] `ueventd.rc`, `ueventd.violet.rc` — device node creation rules
 
 ---
 
 ## Phase 6.3 Research Questions
 
-**Success criterion:** We know *exactly* why the kernel cannot see a storage device —
-not necessarily that we have solved it.
+**Success criterion:** We know *exactly* why the kernel cannot see a storage device — not necessarily that we have solved it.
 
-1. What MMIO address range does the kernel probe for Qualcomm SDHCI-MSM?
-2. Does QEMU's `virt` board expose any MMIO region at that address?
-3. Is there any QEMU device model that registers at a compatible address?
+1. What MMIO address range does the kernel probe for Qualcomm SDHCI-MSM? (Probed: `0x07c4000` via device tree `7c4000.sdhci`).
+2. Does QEMU's `virt` board expose any MMIO region at `0x07c4000`?
+3. Is there any QEMU device model that registers at a compatible address or could be mapped?
 4. Could a custom DTB redirect the SDHCI driver to a QEMU-backed MMIO region?
-5. If not: what is the minimum kernel change that would allow QEMU to present storage?
+5. If not: what is the minimum kernel change or alternative transport (e.g. initramfs/loop/ramdisk) that can mount system.img?
 
 ---
 
@@ -106,5 +108,7 @@ not necessarily that we have solved it.
 | 6.1 | No VirtIO in kernel config | VirtIO block device approach is closed |
 | 6.1 | `CONFIG_CMDLINE_EXTEND=y` | `root=` injection via `-append` may be ignored |
 | 6.1 | No `CONFIG_DEVTMPFS` | Even successful root mount needs full init chain for `/dev` |
-| 6.2 | fstab root device path | **TBD — unblocked by image reconstruction** |
-| 6.3 | SDHCI-MSM MMIO address | **TBD — requires DTB inspection + QEMU research** |
+| 6.2 | Recovery fstab system path | Root mounts `/dev/block/bootdevice/by-name/system` |
+| 6.2 | Boot device resolved | `ro.boot.bootdevice` = `7c4000.sdhci` |
+| 6.3 | SDHCI-MSM MMIO address | eMMC mapped to `0x07c4000` (Qualcomm platform device) |
+
