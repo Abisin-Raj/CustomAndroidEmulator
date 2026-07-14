@@ -7,11 +7,38 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 
+namespace {
+std::string detectCodename(const std::filesystem::path& romDir) {
+    std::filesystem::path metaPath = romDir / "META-INF" / "com" / "android" / "metadata";
+    if (std::filesystem::exists(metaPath)) {
+        std::ifstream in(metaPath);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (line.rfind("pre-device=", 0) == 0) {
+                // Trim trailing newline or carriage return
+                std::string dev = line.substr(11);
+                if (!dev.empty() && dev.back() == '\r') dev.pop_back();
+                return dev;
+            }
+        }
+    }
+    return "unknown";
+}
+} // namespace
+
 BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romName, const std::filesystem::path& romDir) {
     LOG_BOOT_INFO("Starting boot readiness validation for ROM '{}' in '{}'", romName, romDir.string());
     
     BootValidationReport report;
-    report.vmProfile = "generic_arm64"; // Default profile
+    std::string codename = detectCodename(romDir);
+    
+    // Compatibility Layer: Route board codenames to specific hardware profiles
+    if (codename == "violet") {
+        report.vmProfile = "violet";
+        report.recommendations.push_back("Xiaomi Redmi Note 7 Pro hardware profile selected.");
+    } else {
+        report.vmProfile = "generic_arm64"; // Fallback default profile
+    }
 
     std::filesystem::path bootImgPath = romDir / "boot.img";
     std::filesystem::path vbmetaImgPath = romDir / "vbmeta.img";
