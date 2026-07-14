@@ -28,7 +28,7 @@ std::string detectCodename(const std::filesystem::path& romDir) {
 }
 } // namespace
 
-BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romName, const std::filesystem::path& romDir) {
+BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romName, const std::filesystem::path& romDir, std::function<void(const std::string&, float)> progressCb) {
     LOG_BOOT_INFO("Starting boot readiness validation for ROM '{}' in '{}'", romName, romDir.string());
     
     BootValidationReport report;
@@ -172,13 +172,22 @@ BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romN
         if (!std::filesystem::exists(sysImg)) {
             LOG_BOOT_INFO("Decompressing system.new.dat.br...");
             std::string err;
-            bool ok = BrotliDecompressor::decompress(romDir / "system.new.dat.br", sysNewDat, nullptr, &err);
+            auto sysDecompressCb = [progressCb, hasVendorNewDatBr](float p) {
+                float maxP = hasVendorNewDatBr ? 0.40f : 0.50f;
+                if (progressCb) progressCb("Decompressing system.new.dat.br", p * maxP);
+            };
+            bool ok = BrotliDecompressor::decompress(romDir / "system.new.dat.br", sysNewDat, sysDecompressCb, &err);
             if (!ok) {
                 LOG_BOOT_ERROR("Brotli decompression failed: {}", err);
                 report.warnings.push_back("system.new.dat.br decompression failed: " + err);
             } else {
                 LOG_BOOT_INFO("Reconstructing system.img from transfer list...");
-                ok = DatImageBuilder::build(sysNewDat, sysTransfer, sysImg, nullptr, &err);
+                auto sysBuildCb = [progressCb, hasVendorNewDatBr](float p) {
+                    float startP = hasVendorNewDatBr ? 0.40f : 0.50f;
+                    float endP = hasVendorNewDatBr ? 0.80f : 1.00f;
+                    if (progressCb) progressCb("Reconstructing system.img", startP + (p * (endP - startP)));
+                };
+                ok = DatImageBuilder::build(sysNewDat, sysTransfer, sysImg, sysBuildCb, &err);
                 if (!ok) {
                     LOG_BOOT_ERROR("system.img reconstruction failed: {}", err);
                     report.warnings.push_back("system.img reconstruction failed: " + err);
@@ -214,9 +223,15 @@ BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romN
             if (!std::filesystem::exists(vendImg)) {
                 LOG_BOOT_INFO("Decompressing vendor.new.dat.br...");
                 std::string err;
-                bool ok = BrotliDecompressor::decompress(romDir / "vendor.new.dat.br", vendNewDat, nullptr, &err);
+                auto vendDecompressCb = [progressCb](float p) {
+                    if (progressCb) progressCb("Decompressing vendor.new.dat.br", 0.80f + (p * 0.10f));
+                };
+                bool ok = BrotliDecompressor::decompress(romDir / "vendor.new.dat.br", vendNewDat, vendDecompressCb, &err);
                 if (ok) {
-                    ok = DatImageBuilder::build(vendNewDat, vendTransfer, vendImg, nullptr, &err);
+                    auto vendBuildCb = [progressCb](float p) {
+                        if (progressCb) progressCb("Reconstructing vendor.img", 0.90f + (p * 0.10f));
+                    };
+                    ok = DatImageBuilder::build(vendNewDat, vendTransfer, vendImg, vendBuildCb, &err);
                     if (ok) {
                         std::filesystem::remove(vendNewDat);
                         auto vr = DatImageBuilder::verify(vendImg);

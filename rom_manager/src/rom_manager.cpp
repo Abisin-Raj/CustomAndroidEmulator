@@ -135,7 +135,7 @@ bool RomManager::validateRomZip(const std::string& zipPath, RomMetadata& outMeta
     return true;
 }
 
-bool RomManager::installRom(const std::string& zipPath, const std::string& romName, std::string& outError) {
+bool RomManager::installRom(const std::string& zipPath, const std::string& romName, std::string& outError, std::function<void(const std::string&, float)> progressCb) {
     RomMetadata meta;
     if (!validateRomZip(zipPath, meta, outError)) {
         return false;
@@ -158,6 +158,12 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
         LOG_ROM_ERROR("Install failed. {}", outError);
         return false;
     }
+
+    uint64_t totalZipSize = 1;
+    try {
+        totalZipSize = std::filesystem::file_size(zipPath);
+        if (totalZipSize == 0) totalZipSize = 1;
+    } catch (...) {}
 
     struct archive* a = archive_read_new();
     archive_read_support_format_zip(a);
@@ -200,6 +206,11 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
             la_ssize_t size;
             while ((size = archive_read_data(a, buffer, sizeof(buffer))) > 0) {
                 out.write(buffer, size);
+                if (progressCb) {
+                    int64_t bytesRead = archive_filter_bytes(a, -1);
+                    float progress = static_cast<float>(bytesRead) / static_cast<float>(totalZipSize);
+                    progressCb("Extracting " + name, progress * 0.3f);
+                }
             }
 
             if (size < 0) {
@@ -220,11 +231,17 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
 
     // Run Image Inspection Engine on target folder to populate detailed information
     LOG_ROM_INFO("Extract complete. Running ImageParser inspection...");
+    if (progressCb) progressCb("Running image parser inspection...", 0.32f);
     auto inspection = ImageParserEngine::inspectRomDirectory(targetFolder);
 
     // Run Boot readiness validation and configuration generation
     LOG_ROM_INFO("Running BootManager verification...");
-    auto bootReport = BootManager::validateAndPrepareBoot(meta.name, targetFolder);
+    auto wrappedCb = [progressCb](const std::string& stage, float p) {
+        if (progressCb) {
+            progressCb(stage, 0.35f + (p * 0.60f));
+        }
+    };
+    auto bootReport = BootManager::validateAndPrepareBoot(meta.name, targetFolder, wrappedCb);
 
     // Populate advanced metadata
     meta.kernel = inspection.kernelRelease;
@@ -238,6 +255,7 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
 
     meta.status = bootReport.status;
 
+    if (progressCb) progressCb("Saving metadata...", 0.98f);
     if (!saveMetadata(targetFolder, meta)) {
         outError = "Failed to save metadata.json in ROM directory.";
         LOG_ROM_ERROR("Install failed. {}", outError);
@@ -245,6 +263,7 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
         return false;
     }
 
+    if (progressCb) progressCb("Complete!", 1.0f);
     LOG_ROM_INFO("Installation of '{}' completed successfully. Status: {}", meta.name, meta.status);
     return true;
 }

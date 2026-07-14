@@ -121,3 +121,5 @@ __pycache__/
 .env
 venv/
 .venv/
+dtbo_extracted.dts
+scratch/test_ramoops.ps1

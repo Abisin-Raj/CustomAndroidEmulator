@@ -262,14 +262,26 @@ void MainWindow::onInstallRomClicked() {
         }
 
         m_statusLabel->setText("Status: Extracting & validating images...");
-        QProgressDialog progress("Extracting images & validating boot parameters, please wait...", nullptr, 0, 0, this);
+        QProgressDialog progress("Initializing ROM installation...", nullptr, 0, 100, this);
+        progress.setWindowTitle("Installing ROM");
         progress.setWindowModality(Qt::WindowModal);
         progress.setMinimumDuration(0);
+        progress.setValue(0);
         progress.show();
         QCoreApplication::processEvents();
 
+        auto progressCb = [&progress](const std::string& stage, float p) {
+            int val = static_cast<int>(p * 100.0f);
+            if (val > 100) val = 100;
+            if (val < 0) val = 0;
+            progress.setValue(val);
+            progress.setLabelText(QString("%1\nProgress: %2%").arg(QString::fromStdString(stage)).arg(val));
+            QCoreApplication::processEvents();
+        };
+
         std::string installError;
-        bool success = m_romManager->installRom(zipPath.toStdString(), romName.trimmed().toStdString(), installError);
+        bool success = m_romManager->installRom(zipPath.toStdString(), romName.trimmed().toStdString(), installError, progressCb);
+        progress.setValue(100);
         progress.close();
 
         if (success) {

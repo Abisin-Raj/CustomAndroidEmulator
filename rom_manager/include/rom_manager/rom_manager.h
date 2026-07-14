@@ -3,6 +3,8 @@
 #include "models/rom_metadata.h"
 #include <filesystem>
 
+#include <functional>
+
 class RomManager {
 public:
     explicit RomManager(const std::string& romsDir);
@@ -16,7 +18,7 @@ public:
     /**
      * @brief Installs a custom ROM from a ZIP file by extracting its images and writing metadata.json.
      */
-    bool installRom(const std::string& zipPath, const std::string& romName, std::string& outError);
+    bool installRom(const std::string& zipPath, const std::string& romName, std::string& outError, std::function<void(const std::string&, float)> progressCb = nullptr);
 
     /**
      * @brief Scans the roms directory and returns metadata of all installed ROMs.
