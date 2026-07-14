@@ -20,5 +20,7 @@ message(STATUS "Found Qt6: ${Qt6_VERSION}")
 message(STATUS "Found LibArchive: ${LibArchive_VERSION}")
 
 # Add subdirectories
+add_subdirectory(core)
+add_subdirectory(image_parser)
 add_subdirectory(rom_manager)
 add_subdirectory(launcher)
