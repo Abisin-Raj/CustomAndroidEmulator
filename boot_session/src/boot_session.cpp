@@ -180,7 +180,10 @@ void BootSession::writeQemuCmdFile(const std::string& logsDir) const {
 
         std::ofstream out(filePath);
         if (out) {
-            out << m_qemuCommandLine << "\n";
+            out << "=== ORIGINAL QEMU COMMAND LINE ===\n"
+                << (m_originalQemuCommandLine.empty() ? m_qemuCommandLine : m_originalQemuCommandLine) << "\n\n"
+                << "=== MODIFIED QEMU COMMAND LINE ===\n"
+                << m_qemuCommandLine << "\n";
             out.close();
         }
     } catch (...) {

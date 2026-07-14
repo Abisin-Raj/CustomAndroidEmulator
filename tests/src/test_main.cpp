@@ -441,8 +441,10 @@ void testBootPipelineManager() {
     manager.getSession().setDuration(4.50);
     manager.getSession().writeJsonSummary("test_logs_dir");
 
-    manager.getSession().setQemuCommandLine("qemu-system-aarch64 -cpu cortex-a53");
-    TEST_ASSERT(manager.getSession().getQemuCommandLine() == "qemu-system-aarch64 -cpu cortex-a53", "Qemu cmdline must match");
+    manager.getSession().setQemuCommandLine("qemu-system-aarch64 -cpu cortex-a53 -append 'modified'");
+    manager.getSession().setOriginalQemuCommandLine("qemu-system-aarch64 -cpu cortex-a53 -append 'original'");
+    TEST_ASSERT(manager.getSession().getQemuCommandLine() == "qemu-system-aarch64 -cpu cortex-a53 -append 'modified'", "Qemu cmdline must match");
+    TEST_ASSERT(manager.getSession().getOriginalQemuCommandLine() == "qemu-system-aarch64 -cpu cortex-a53 -append 'original'", "Original Qemu cmdline must match");
     manager.getSession().writeQemuCmdFile("test_logs_dir");
     
     // Ensure files exist

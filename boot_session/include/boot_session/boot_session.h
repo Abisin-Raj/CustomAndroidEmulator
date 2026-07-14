@@ -19,6 +19,7 @@ public:
     void setLastState(const std::string& state) { m_lastState = state; }
     void setPanicReason(const std::string& reason) { m_panicReason = reason; }
     void setQemuCommandLine(const std::string& cmd) { m_qemuCommandLine = cmd; }
+    void setOriginalQemuCommandLine(const std::string& cmd) { m_originalQemuCommandLine = cmd; }
 
     // Getters
     const std::string& getRomName() const { return m_romName; }
@@ -28,6 +29,7 @@ public:
     const std::string& getLastState() const { return m_lastState; }
     const std::string& getPanicReason() const { return m_panicReason; }
     const std::string& getQemuCommandLine() const { return m_qemuCommandLine; }
+    const std::string& getOriginalQemuCommandLine() const { return m_originalQemuCommandLine; }
     const std::vector<BootEvent>& getTimeline() const { return m_timeline; }
     
     int getInfoCount() const { return m_infoCount; }
@@ -51,6 +53,7 @@ private:
     std::string m_lastState = "VM_STARTING";
     std::string m_panicReason = "";
     std::string m_qemuCommandLine;
+    std::string m_originalQemuCommandLine;
     std::vector<BootEvent> m_timeline;
 
     int m_infoCount = 0;

@@ -117,6 +117,13 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
         hasRamdisk ? tempRamdiskPath.string() : ""
     );
 
+    // Build original command line arguments before console args replacement
+    QStringList originalArgs = QemuArguments::build(params);
+    std::string originalFullCmd = qemuPath;
+    for (const auto& arg : originalArgs) {
+        originalFullCmd += " " + arg.toStdString();
+    }
+
     // Apply kernel runtime commandline improvements
     params.cmdline = KernelCommandLine::build(params.cmdline);
 
@@ -126,6 +133,7 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
     m_pipelineManager->setRomName(romName);
     m_pipelineManager->getSession() = BootSession();
     m_pipelineManager->getSession().setRomName(romName);
+    m_pipelineManager->getSession().setOriginalQemuCommandLine(originalFullCmd);
 
     std::string fullCmd = qemuPath;
     for (const auto& arg : args) {
