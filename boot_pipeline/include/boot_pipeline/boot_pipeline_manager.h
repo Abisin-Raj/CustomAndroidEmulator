@@ -27,6 +27,7 @@ public:
     BootSession& getSession() { return m_session; }
     EventDispatcher* getDispatcher() const { return m_dispatcher; }
     kernel_analysis::SymbolResolver& getResolver() { return m_resolver; }
+    const kernel_analysis::SymbolResolver& getResolver() const { return m_resolver; }
 
     void setRomName(const std::string& name);
 

@@ -20,6 +20,10 @@ public:
     // Resolve a virtual address to function_name+offset
     std::string resolveAddress(uint64_t address);
 
+    // Look up a symbol by exact name and return its virtual address.
+    // Returns 0 if the symbol is not found.
+    uint64_t findSymbolAddress(const std::string& name) const;
+
     // Get number of loaded symbols
     size_t getSymbolCount() const { return m_symbols.size(); }
 

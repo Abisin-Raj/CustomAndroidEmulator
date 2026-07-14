@@ -5,9 +5,12 @@
 #include "qemu_backend/qemu_detector.h"
 #include "qemu_backend/qemu_arguments.h"
 #include "qemu_backend/qemu_launcher.h"
+#include "qemu_backend/smc_interceptor.h"
 #include "boot_events/event_dispatcher.h"
 #include "boot_pipeline/boot_pipeline_manager.h"
 #include "kernel_runtime/kernel_commandline.h"
+#include "firmware/smc_dispatcher.h"
+#include "firmware/scm_services.h"
 #include "core/logger.h"
 #include "core/utils.h"
 #include <nlohmann/json.hpp>
@@ -18,8 +21,12 @@ VmManager::VmManager(QObject* parent)
     , m_launcher(new QemuLauncher(this))
     , m_dispatcher(new EventDispatcher(this))
     , m_pipelineManager(new BootPipelineManager(m_dispatcher))
+    , m_smcDispatcher(new firmware::SmcDispatcher())
     , m_isRunning(false) {
     m_pipelineManager->initializeDefaultDetectors();
+
+    // Register QCOM boot SCM service (handles 0xC2000601 BOOT_ADDR_MC)
+    m_smcDispatcher->registerService(std::make_unique<firmware::QcomBootService>());
 
     connect(m_launcher, &QemuLauncher::stateChanged, this, &VmManager::onLauncherStateChanged);
     connect(m_launcher, &QemuLauncher::finished, this, &VmManager::onLauncherFinished);
@@ -29,6 +36,7 @@ VmManager::VmManager(QObject* parent)
 VmManager::~VmManager() {
     stopVm();
     delete m_pipelineManager;
+    delete m_smcDispatcher;
 }
 
 bool VmManager::startVm(const std::string& romName, const std::filesystem::path& romDir) {
@@ -146,12 +154,55 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
     m_activeRomName = romName;
     m_activeRomDir = romDir;
 
-    // 5. Spawn QEMU
+    // 5. Configure GDB stub for SMC interception (if symbols are available)
+    // The interceptor requires the QCOM SCM function to be in the resolver.
+    bool interceptEnabled = false;
+    {
+        const kernel_analysis::SymbolResolver& resolver =
+            m_pipelineManager->getResolver();
+        uint64_t scmFuncAddr = resolver.findSymbolAddress("qcom_scm_set_warm_boot_addr");
+        if (scmFuncAddr != 0) {
+            constexpr quint16 GDB_PORT = 1234;
+            m_launcher->enableGdbStub(GDB_PORT);
+
+            // Destroy any previous interceptor instance
+            if (m_smcInterceptor) {
+                m_smcInterceptor->stop();
+                delete m_smcInterceptor;
+                m_smcInterceptor = nullptr;
+            }
+
+            m_smcInterceptor = new qemu_backend::SmcInterceptor(
+                *m_smcDispatcher, resolver, GDB_PORT, this);
+
+            connect(m_smcInterceptor, &qemu_backend::SmcInterceptor::smcIntercepted,
+                [this](quint64 smcId, bool handled, quint64 returnX0) {
+                    LOG_QEMU_INFO("VmManager: SMC 0x{:08x} intercepted — handled={} X0=0x{:x}",
+                        smcId, handled, returnX0);
+                });
+            interceptEnabled = true;
+            LOG_QEMU_INFO("VmManager: SMC interception enabled — "
+                "qcom_scm_set_warm_boot_addr resolved at 0x{:016x}", scmFuncAddr);
+        } else {
+            LOG_QEMU_WARN("VmManager: qcom_scm_set_warm_boot_addr not found in System.map. "
+                "Running without SMC interception.");
+        }
+    }
+
+    // 6. Spawn QEMU
     m_timer.start();
     if (!m_launcher->start(qemuPath, args)) {
         LOG_QEMU_ERROR("VmManager: Process launch failed. Cleaning up temporary folders...");
         BootAssetLoader::cleanTempAssets(tempDir);
         return false;
+    }
+
+    // 7. Start SMC interceptor thread (connects to QEMU's GDB stub)
+    if (interceptEnabled && m_smcInterceptor) {
+        if (!m_smcInterceptor->start()) {
+            LOG_QEMU_WARN("VmManager: SMC interceptor failed to start. "
+                "QEMU may hang at the warm-boot SCM call.");
+        }
     }
 
     m_isRunning = true;
@@ -161,6 +212,9 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
 }
 
 void VmManager::stopVm() {
+    if (m_smcInterceptor) {
+        m_smcInterceptor->stop();
+    }
     m_launcher->stop();
 }
 

@@ -108,4 +108,12 @@ std::string SymbolResolver::resolveAddress(uint64_t address) {
     return ss.str();
 }
 
+uint64_t SymbolResolver::findSymbolAddress(const std::string& name) const {
+    // Linear scan by name — called once at startup, O(n) is acceptable.
+    for (const auto& sym : m_symbols) {
+        if (sym.name == name) return sym.address;
+    }
+    return 0;
+}
+
 } // namespace kernel_analysis

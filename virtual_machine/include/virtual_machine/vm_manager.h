@@ -8,6 +8,9 @@ class QemuLauncher;
 class EventDispatcher;
 class BootPipelineManager;
 
+namespace firmware { class SmcDispatcher; }
+namespace qemu_backend { class SmcInterceptor; }
+
 class VmManager : public QObject {
     Q_OBJECT
 public:
@@ -42,9 +45,13 @@ private slots:
     void onLogLineRead(const QString& line);
 
 private:
-    QemuLauncher* m_launcher = nullptr;
-    EventDispatcher* m_dispatcher = nullptr;
+    QemuLauncher*       m_launcher       = nullptr;
+    EventDispatcher*    m_dispatcher     = nullptr;
     BootPipelineManager* m_pipelineManager = nullptr;
+
+    // Firmware compatibility layer — intercepts SMC calls via QEMU GDB stub
+    firmware::SmcDispatcher*        m_smcDispatcher  = nullptr;
+    qemu_backend::SmcInterceptor*   m_smcInterceptor = nullptr;
 
     std::filesystem::path m_activeRomDir;
     std::string m_activeRomName;
