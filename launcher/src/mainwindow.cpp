@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "core/logger.h"
+#include "core/config_manager.h"
 #include "image_parser/image_parser.h"
 #include "boot_manager/boot_manager.h"
 #include "models/boot_report.h"
@@ -23,8 +24,15 @@ MainWindow::MainWindow(QWidget* parent)
     resize(850, 520);
     setMinimumSize(700, 400);
 
+    // Initialize configuration files
+    core::ConfigManager::initializeDefaultConfigs();
+
     QString romsDir = QCoreApplication::applicationDirPath() + "/roms";
     m_romManager = std::make_unique<RomManager>(romsDir.toStdString());
+    m_vmManager = new VmManager(this);
+
+    // Track active VM state changes
+    connect(m_vmManager, &VmManager::vmStateChanged, this, &MainWindow::onVmStateChanged);
 
     setupUi();
     
@@ -119,7 +127,7 @@ void MainWindow::setupDashboardPage() {
     gridLayout->addWidget(new QLabel("Windows x86_64", this), 2, 1);
 
     gridLayout->addWidget(new QLabel("Virtualization Engine:", this), 3, 0);
-    gridLayout->addWidget(new QLabel("QEMU Emulator Backend (Pending Phase 4)", this), 3, 1);
+    gridLayout->addWidget(new QLabel("QEMU Emulator Backend (Phase 4 Active)", this), 3, 1);
 
     layout->addWidget(infoGroupBox);
     layout->addStretch();
@@ -163,7 +171,7 @@ void MainWindow::setupRomsPage() {
 
     m_launchBtn = new QPushButton("Launch", this);
     m_launchBtn->setEnabled(false);
-    m_launchBtn->setToolTip("Virtualization engine integration will occur in Phase 4");
+    m_launchBtn->setToolTip("Virtualization engine integration (Phase 4)");
     connect(m_launchBtn, &QPushButton::clicked, this, &MainWindow::onLaunchClicked);
     actionLayout->addWidget(m_launchBtn);
 
@@ -184,6 +192,8 @@ void MainWindow::setupRomsPage() {
 }
 
 void MainWindow::loadRomsList() {
+    if (m_vmManager->isVmRunning()) return;
+
     m_romsTable->setRowCount(0);
     
     auto roms = m_romManager->getInstalledRoms();
@@ -200,6 +210,7 @@ void MainWindow::loadRomsList() {
     bool hasRows = roms.size() > 0;
     m_removeBtn->setEnabled(hasRows);
     m_infoBtn->setEnabled(hasRows);
+    m_launchBtn->setEnabled(hasRows);
 }
 
 void MainWindow::onInstallRomClicked() {
@@ -269,7 +280,59 @@ void MainWindow::onInstallRomClicked() {
 }
 
 void MainWindow::onLaunchClicked() {
-    // Placeholder
+    if (m_vmManager->isVmRunning()) {
+        m_statusLabel->setText("Status: Stopping virtual machine...");
+        m_vmManager->stopVm();
+        return;
+    }
+
+    int row = m_romsTable->currentRow();
+    if (row < 0) {
+        QMessageBox::warning(this, "No Selection", "Please select a ROM from the table to launch.");
+        return;
+    }
+
+    std::string name = m_romsTable->item(row, 0)->text().toStdString();
+    
+    // Check if configuration parameters exist
+    QString romDir = QCoreApplication::applicationDirPath() + "/roms/" + QString::fromStdString(name);
+    
+    m_statusLabel->setText("Status: Booting guest virtual machine...");
+    QCoreApplication::processEvents();
+
+    if (m_vmManager->startVm(name, romDir.toStdString())) {
+        LOG_LAUNCHER_INFO("Virtual machine launcher spawned successfully.");
+        // UI states are automatically updated in onVmStateChanged(true) via signal mapping
+    } else {
+        QMessageBox::critical(this, "Boot VM Failed", 
+            "Failed to launch the target virtual machine.\nConfirm QEMU path is set in Settings and boot_config.json exists.");
+        m_statusLabel->setText("Status: Launch Failed");
+    }
+}
+
+void MainWindow::onVmStateChanged(bool running) {
+    if (running) {
+        m_statusLabel->setText("Status: Virtual Machine Active");
+        m_launchBtn->setText("Stop VM");
+        m_launchBtn->setEnabled(true);
+        m_removeBtn->setEnabled(false);
+        m_infoBtn->setEnabled(false);
+        m_romsTable->setEnabled(false);
+        m_sidebarList->item(0)->setFlags(m_sidebarList->item(0)->flags() & ~Qt::ItemIsEnabled); // Disable dashboard selection
+        m_sidebarList->item(1)->setFlags(m_sidebarList->item(1)->flags() & ~Qt::ItemIsEnabled); // Disable ROMs selection
+        m_sidebarList->item(2)->setFlags(m_sidebarList->item(2)->flags() & ~Qt::ItemIsEnabled); // Disable Settings selection
+    } else {
+        m_statusLabel->setText("Status: Ready");
+        m_launchBtn->setText("Launch");
+        m_romsTable->setEnabled(true);
+        
+        // Re-enable tabs
+        for (int i = 0; i < m_sidebarList->count(); ++i) {
+            m_sidebarList->item(i)->setFlags(m_sidebarList->item(i)->flags() | Qt::ItemIsEnabled);
+        }
+
+        loadRomsList();
+    }
 }
 
 void MainWindow::onRemoveClicked() {
@@ -415,10 +478,28 @@ void MainWindow::setupSettingsPage() {
     auto* formLayout = new QFormLayout();
     formLayout->setSpacing(10);
 
+    // QEMU binary path picker
+    auto* qemuLayout = new QHBoxLayout();
+    m_qemuPathLineEdit = new QLineEdit(this);
+    m_qemuPathLineEdit->setText(QString::fromStdString(core::ConfigManager::getQemuPath()));
+    m_qemuPathLineEdit->setPlaceholderText("Detecting in system PATH / standard folders...");
+    
+    // Auto save on text changed
+    connect(m_qemuPathLineEdit, &QLineEdit::textChanged, this, [](const QString& text){
+        core::ConfigManager::setQemuPath(text.toStdString());
+    });
+
+    m_browseQemuBtn = new QPushButton("Browse...", this);
+    connect(m_browseQemuBtn, &QPushButton::clicked, this, &MainWindow::onBrowseQemuClicked);
+    qemuLayout->addWidget(m_qemuPathLineEdit);
+    qemuLayout->addWidget(m_browseQemuBtn);
+
+    formLayout->addRow("Custom QEMU Path:", qemuLayout);
+
     QString romsDir = QCoreApplication::applicationDirPath() + "/roms";
     formLayout->addRow("ROMs Storage Path:", new QLabel(romsDir, this));
-    formLayout->addRow("Default RAM Allocation:", new QLabel("4096 MB", this));
-    formLayout->addRow("Virtual CPU Cores:", new QLabel("4 Cores", this));
+    formLayout->addRow("Default RAM Allocation:", new QLabel("1024 MB (Dynamic profile managed)", this));
+    formLayout->addRow("Virtual CPU Cores:", new QLabel("Virtual Board CPU (dynamic match)", this));
     formLayout->addRow("Emulation Target:", new QLabel("ARM64 (aarch64)", this));
     formLayout->addRow("Display Mode:", new QLabel("SDL Display (GPU Accelerated)", this));
 
@@ -426,6 +507,15 @@ void MainWindow::setupSettingsPage() {
     layout->addStretch();
     
     m_stackedWidget->addWidget(page);
+}
+
+void MainWindow::onBrowseQemuClicked() {
+    QString qemuFile = QFileDialog::getOpenFileName(this, "Select QEMU Executable", "", "QEMU Executable (*.exe)");
+    if (!qemuFile.isEmpty()) {
+        m_qemuPathLineEdit->setText(qemuFile);
+        core::ConfigManager::setQemuPath(qemuFile.toStdString());
+        LOG_LAUNCHER_INFO("Selected custom QEMU path: {}", qemuFile.toStdString());
+    }
 }
 
 void MainWindow::setupLogsPage() {
@@ -482,16 +572,16 @@ void MainWindow::setupAboutPage() {
 
     auto* aboutText = new QLabel(
         "CustomAndroidEmulator Launcher\n"
-        "Version 0.3.0 (Phase 3: Boot Readiness Validation)\n\n"
+        "Version 0.4.0 (Phase 4: Virtual Machine Runtime)\n\n"
         "An ambitious systems-programming project aiming to run custom Android ROM packages "
         "inside a dynamic virtualization environment on Windows using a modular QEMU backend.\n\n"
-        "Phase 3 Features:\n"
-        " - Shared Models Module implementation (boot_info, vbmeta_info, payload_info, rom_metadata)\n"
-        " - Categorized Logging system\n"
-        " - Boot readiness validations (carving offsets, super/payload slot checking, AVB vbmeta verify flag scans)\n"
-        " - Generating virtual machine descriptions (boot_config.json containing offsets & vm_profiles)\n"
-        " - Native Windows Light/Dark look and feel with full checklist reports\n"
-        " - Self-contained automated parser and validator unit testing suite\n\n"
+        "Phase 4 Features:\n"
+        " - Shared ConfigManager parsing settings.json and vm_profiles.json\n"
+        " - Memory-based BootAssetLoader seeking and temp boot extractions\n"
+        " - Non-blocking QEMU process execution redirecting logs in real-time\n"
+        " - Virtual board profiles configurations mapping custom parameters\n"
+        " - Active VM state locking on UI tabs and buttons\n"
+        " - Browser configuration paths selector\n\n"
         "Developed by abisin-raj <abisinr201@gmail.com>.",
         this
     );

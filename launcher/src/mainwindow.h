@@ -7,8 +7,10 @@
 #include <QTextEdit>
 #include <QLabel>
 #include <QPushButton>
+#include <QLineEdit>
 #include <memory>
 #include "rom_manager/rom_manager.h"
+#include "virtual_machine/vm_manager.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -26,6 +28,12 @@ private slots:
     void onRefreshClicked();
     void onRomInfoClicked();
     
+    // Custom QEMU Path Browser
+    void onBrowseQemuClicked();
+
+    // VM State Slot Callbacks
+    void onVmStateChanged(bool running);
+
     // Helpers to update page content
     void refreshLogPanel();
     void updateDashboardStats();
@@ -41,6 +49,7 @@ private:
     void loadRomsList();
 
     std::unique_ptr<RomManager> m_romManager;
+    VmManager* m_vmManager = nullptr;
     
     // UI components
     QListWidget* m_sidebarList = nullptr;
@@ -56,6 +65,10 @@ private:
     QPushButton* m_removeBtn = nullptr;
     QPushButton* m_infoBtn = nullptr;
     
+    // Page 3: Settings
+    QLineEdit* m_qemuPathLineEdit = nullptr;
+    QPushButton* m_browseQemuBtn = nullptr;
+
     // Page 4: Logs
     QTextEdit* m_logsTextEdit = nullptr;
     

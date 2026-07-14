@@ -11,4 +11,7 @@ target_link_libraries(launcher PRIVATE
     models
     image_parser
     boot_manager
+    boot_assets
+    qemu_backend
+    virtual_machine
 )
