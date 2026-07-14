@@ -12,5 +12,7 @@ target_link_libraries(rom_manager PUBLIC
     LibArchive::LibArchive
     Qt6::Core
     core
+    models
     image_parser
+    boot_manager
 )
