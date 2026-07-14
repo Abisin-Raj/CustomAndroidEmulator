@@ -83,6 +83,9 @@ roms/
 !tests/**/*.zip
 mock_rom.zip
 mock_rom2.zip
+recovery_fs/
+*.cpio
+*.gz
 
 # ----------------------------------------------------------------------------
 # Kernel analysis temporaries

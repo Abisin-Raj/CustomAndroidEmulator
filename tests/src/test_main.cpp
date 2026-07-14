@@ -17,12 +17,16 @@
 #include "boot_pipeline/kernel_detector.h"
 #include "boot_pipeline/init_detector.h"
 #include "boot_pipeline/panic_detector.h"
+#include "image_converter/brotli_decompressor.h"
+#include "image_converter/transfer_list_parser.h"
+#include "image_converter/dat_image_builder.h"
 #include <iostream>
 #include <fstream>
 #include <cassert>
 #include <cstring>
 #include <filesystem>
 #include <nlohmann/json.hpp>
+
 
 // A simple macro for reporting assert successes
 #define TEST_ASSERT(cond, msg) \
@@ -254,6 +258,103 @@ void testKernelCommandLine() {
     TEST_ASSERT(builtEmpty.find("earlycon=pl011,0x09000000") != std::string::npos, "Should add earlycon argument if base is empty");
 }
 
+void testImageConverter() {
+    // 1. Test parsing range sets
+    auto ranges = TransferListParser::parseRangeSet("4,0,10,20,30");
+    TEST_ASSERT(ranges.size() == 2, "Should parse 2 ranges");
+    TEST_ASSERT(ranges[0].first == 0 && ranges[0].second == 10, "Range 0 bounds check");
+    TEST_ASSERT(ranges[1].first == 20 && ranges[1].second == 30, "Range 1 bounds check");
+
+    // 2. Test mock transfer list parsing & image construction
+    std::filesystem::path testDir = "test_image_converter_dir";
+    std::filesystem::create_directory(testDir);
+
+    std::filesystem::path transferPath = testDir / "system.transfer.list";
+    {
+        std::ofstream out(transferPath);
+        out << "4\n3\n0\n0\n";
+        out << "new 4,0,1,2,3\n";
+        out << "zero 2,1,2\n";
+    }
+
+    std::filesystem::path datPath = testDir / "system.new.dat";
+    {
+        std::ofstream out(datPath, std::ios::binary);
+        std::vector<char> blockA(4096, 'A');
+        std::vector<char> blockB(4096, 'B');
+        out.write(blockA.data(), blockA.size());
+        out.write(blockB.data(), blockB.size());
+    }
+
+    std::filesystem::path imgPath = testDir / "system.img";
+    std::string err;
+    bool ok = DatImageBuilder::build(datPath, transferPath, imgPath, nullptr, &err);
+    TEST_ASSERT(ok, "DatImageBuilder::build should succeed");
+    
+    // Check built file size
+    TEST_ASSERT(std::filesystem::exists(imgPath), "Reconstructed image must exist");
+    TEST_ASSERT(std::filesystem::file_size(imgPath) == 3 * 4096, "Reconstructed image size must match block count");
+
+    // Read back blocks and verify
+    std::ifstream in(imgPath, std::ios::binary);
+    std::vector<char> block(4096);
+    
+    // Block 0: should be all 'A'
+    in.read(block.data(), 4096);
+    bool allA = true;
+    for (char c : block) { if (c != 'A') allA = false; }
+    TEST_ASSERT(allA, "Block 0 must be all A");
+
+    // Block 1: should be all 0 (zero command)
+    in.read(block.data(), 4096);
+    bool allZero = true;
+    for (char c : block) { if (c != 0) allZero = false; }
+    TEST_ASSERT(allZero, "Block 1 must be zeroed");
+
+    // Block 2: should be all 'B'
+    in.read(block.data(), 4096);
+    bool allB = true;
+    for (char c : block) { if (c != 'B') allB = false; }
+    TEST_ASSERT(allB, "Block 2 must be all B");
+
+    in.close();
+
+    // 3. Test verification (magic at offset 1080)
+    {
+        std::fstream out(imgPath, std::ios::in | std::ios::out | std::ios::binary);
+        out.seekp(1080);
+        char magic[2] = {0x53, (char)0xEF};
+        out.write(magic, 2);
+    }
+    auto vr = DatImageBuilder::verify(imgPath);
+    TEST_ASSERT(vr.isValidExt4, "Ext4 magic validation should detect mock magic");
+    TEST_ASSERT(!vr.sha256.empty(), "SHA-256 digest should be generated");
+
+    // Pre-compressed brotli payload for "Hello Brotli!"
+    std::vector<uint8_t> compressedPayload = {
+        0x0F, 0x06, 0x80, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x20,
+        0x42, 0x72, 0x6F, 0x74, 0x6C, 0x69, 0x21, 0x03
+    };
+    std::filesystem::path brPath = testDir / "hello.br";
+    std::filesystem::path decompressedPath = testDir / "hello.txt";
+    {
+        std::ofstream out(brPath, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(compressedPayload.data()), compressedPayload.size());
+    }
+    ok = BrotliDecompressor::decompress(brPath, decompressedPath, nullptr, &err);
+    TEST_ASSERT(ok, "BrotliDecompressor::decompress should succeed");
+    TEST_ASSERT(std::filesystem::exists(decompressedPath), "Decompressed file must exist");
+    
+    std::ifstream txtIn(decompressedPath);
+    std::string decompressedText;
+    std::getline(txtIn, decompressedText);
+    TEST_ASSERT(decompressedText == "Hello Brotli!", "Decompressed text must match original");
+    txtIn.close();
+
+    // Cleanup
+    std::filesystem::remove_all(testDir);
+}
+
 void testEventDispatcher() {
     EventDispatcher dispatcher;
     bool eventFired = false;
@@ -375,6 +476,7 @@ int main() {
     testVmProfile();
     testQemuArguments();
     testKernelCommandLine();
+    testImageConverter();
     testEventDispatcher();
     testPanicDetector();
     testBootPipelineManager();

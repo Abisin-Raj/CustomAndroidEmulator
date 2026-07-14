@@ -6,6 +6,7 @@ target_link_libraries(run_tests PRIVATE
     core
     models
     image_parser
+    image_converter
     boot_manager
     rom_manager
     boot_assets
