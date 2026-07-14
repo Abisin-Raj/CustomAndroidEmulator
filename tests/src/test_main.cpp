@@ -238,15 +238,20 @@ void testQemuArguments() {
 }
 
 void testKernelCommandLine() {
-    std::string base = "console=ttyS0 quiet";
+    // Device-specific console should be replaced with QEMU PL011 equivalent
+    std::string base = "console=ttyMSM0,115200n8 earlycon=msm_geni_serial,0x880000 quiet";
     std::string build = KernelCommandLine::build(base);
-    TEST_ASSERT(build.find("console=ttyAMA0") == std::string::npos, "Should respect existing console setting if console= is present");
-    TEST_ASSERT(build.find("earlycon=pl011,0x09000000") != std::string::npos, "Should append earlycon argument");
+    TEST_ASSERT(build.find("console=ttyAMA0") != std::string::npos, "Should replace device console with ttyAMA0");
+    TEST_ASSERT(build.find("ttyMSM0") == std::string::npos, "Should remove Qualcomm UART console arg");
+    TEST_ASSERT(build.find("earlycon=pl011,0x09000000") != std::string::npos, "Should replace earlycon with PL011");
+    TEST_ASSERT(build.find("msm_geni_serial") == std::string::npos, "Should remove Qualcomm earlycon arg");
     TEST_ASSERT(build.find("printk.devkmsg=on") != std::string::npos, "Should append printk argument");
+    TEST_ASSERT(build.find("quiet") != std::string::npos, "Should preserve other kernel args");
 
     std::string emptyBase = "";
     std::string builtEmpty = KernelCommandLine::build(emptyBase);
     TEST_ASSERT(builtEmpty.find("console=ttyAMA0") != std::string::npos, "Should add console argument if base is empty");
+    TEST_ASSERT(builtEmpty.find("earlycon=pl011,0x09000000") != std::string::npos, "Should add earlycon argument if base is empty");
 }
 
 void testEventDispatcher() {

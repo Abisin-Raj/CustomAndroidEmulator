@@ -1,31 +1,44 @@
 #include "kernel_runtime/kernel_commandline.h"
 #include <sstream>
+#include <vector>
 #include <cctype>
 
 std::string KernelCommandLine::build(const std::string& baseCmdline, bool enforceLogs) {
     std::string result = baseCmdline;
 
     if (enforceLogs) {
-        // Trim leading and trailing spaces
-        while (!result.empty() && std::isspace(static_cast<unsigned char>(result.front()))) {
-            result.erase(0, 1);
-        }
-        while (!result.empty() && std::isspace(static_cast<unsigned char>(result.back()))) {
-            result.pop_back();
-        }
+        std::vector<std::string> tokens;
+        std::stringstream ss(baseCmdline);
+        std::string token;
+        bool hasConsole = false;
+        bool hasEarlycon = false;
+        bool hasDevkmsg = false;
 
-        auto appendArgIfMissing = [&result](const std::string& key, const std::string& fullArg) {
-            if (result.find(key) == std::string::npos) {
-                if (!result.empty()) {
-                    result += " ";
-                }
-                result += fullArg;
+        while (ss >> token) {
+            if (token.rfind("console=", 0) == 0) {
+                tokens.push_back("console=ttyAMA0");
+                hasConsole = true;
+            } else if (token.rfind("earlycon=", 0) == 0) {
+                tokens.push_back("earlycon=pl011,0x09000000");
+                hasEarlycon = true;
+            } else if (token.rfind("printk.devkmsg=", 0) == 0) {
+                tokens.push_back("printk.devkmsg=on");
+                hasDevkmsg = true;
+            } else {
+                tokens.push_back(token);
             }
-        };
+        }
 
-        appendArgIfMissing("console=", "console=ttyAMA0");
-        appendArgIfMissing("earlycon=", "earlycon=pl011,0x09000000");
-        appendArgIfMissing("printk.devkmsg=", "printk.devkmsg=on");
+        if (!hasConsole) tokens.push_back("console=ttyAMA0");
+        if (!hasEarlycon) tokens.push_back("earlycon=pl011,0x09000000");
+        if (!hasDevkmsg) tokens.push_back("printk.devkmsg=on");
+
+        std::stringstream out;
+        for (size_t i = 0; i < tokens.size(); ++i) {
+            if (i > 0) out << " ";
+            out << tokens[i];
+        }
+        result = out.str();
     }
 
     return result;
