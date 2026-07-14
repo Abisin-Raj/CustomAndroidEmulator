@@ -73,7 +73,10 @@ bool RomManager::validateRomZip(const std::string& zipPath, RomMetadata& outMeta
     while (archive_read_next_header(a, &entry) == ARCHIVE_OK) {
         std::string name = archive_entry_pathname(entry);
         
-        if (name.ends_with(".img") || name.ends_with(".bin") || name.ends_with(".elf") || name == "payload.bin") {
+        if (name.ends_with(".img") || name.ends_with(".bin") || name.ends_with(".elf") || 
+            name.ends_with(".new.dat.br") || name.ends_with(".new.dat") ||
+            name.ends_with(".patch.dat") || name.ends_with(".transfer.list") ||
+            name == "payload.bin") {
             hasImages = true;
         }
 
@@ -175,6 +178,8 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
         std::string name = archive_entry_pathname(entry);
 
         bool isExtractable = (name.ends_with(".img") || name.ends_with(".bin") || name.ends_with(".elf") || 
+                              name.ends_with(".new.dat.br") || name.ends_with(".new.dat") ||
+                              name.ends_with(".patch.dat") || name.ends_with(".transfer.list") ||
                               name == "payload.bin" || name == "META-INF/com/android/metadata");
 
         if (isExtractable) {

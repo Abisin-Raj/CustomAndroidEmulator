@@ -53,6 +53,8 @@ BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romN
     bool hasSystemImg = std::filesystem::exists(systemImgPath);
     bool hasPayloadBin = std::filesystem::exists(payloadBinPath);
     bool hasVendorBootImg = std::filesystem::exists(vendorBootImgPath);
+    bool hasSystemNewDatBr = std::filesystem::exists(romDir / "system.new.dat.br");
+    bool hasSystemNewDat = std::filesystem::exists(romDir / "system.new.dat");
 
     BootImgInfo bootInfo;
     uint64_t kernelOffset = 0;
@@ -89,8 +91,8 @@ BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romN
     }
 
     // 2. Validate Filesystem partitions
-    if (!hasSystemImg && !hasSuperImg && !hasPayloadBin) {
-        report.errors.push_back("Missing filesystem partition. ROM must contain system.img, super.img, or payload.bin.");
+    if (!hasSystemImg && !hasSuperImg && !hasPayloadBin && !hasSystemNewDatBr && !hasSystemNewDat) {
+        report.errors.push_back("Missing filesystem partition. ROM must contain system.img, super.img, payload.bin, or system.new.dat.br.");
     }
 
     if (hasSuperImg) {
@@ -101,6 +103,16 @@ BootValidationReport BootManager::validateAndPrepareBoot(const std::string& romN
     if (hasPayloadBin) {
         report.warnings.push_back("Unextracted OTA package (payload.bin) detected. Extracted partitions will run dynamically.");
         report.recommendations.push_back("A/B layout detected. Ensure slot selection matches active boot target.");
+    }
+
+    if (hasSystemNewDatBr) {
+        report.warnings.push_back("Brotli-compressed system partition (system.new.dat.br) detected.");
+        report.recommendations.push_back("System partition will be decompressed dynamically in a later phase.");
+    }
+
+    if (hasSystemNewDat) {
+        report.warnings.push_back("Sparse block system partition (system.new.dat) detected.");
+        report.recommendations.push_back("System partition will be converted to raw ext4 dynamically in a later phase.");
     }
 
     // 3. Validate AVB (vbmeta.img)
