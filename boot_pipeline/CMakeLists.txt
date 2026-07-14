@@ -27,5 +27,6 @@ target_link_libraries(boot_pipeline PUBLIC
     models
     boot_events
     boot_session
+    kernel_analysis
     Qt6::Core
 )

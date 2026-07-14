@@ -131,6 +131,7 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
 
     // Reset boot pipeline context and session configurations
     m_pipelineManager->setRomName(romName);
+    m_pipelineManager->loadSymbols(romDir.string());
     m_pipelineManager->getSession() = BootSession();
     m_pipelineManager->getSession().setRomName(romName);
     m_pipelineManager->getSession().setOriginalQemuCommandLine(originalFullCmd);
@@ -169,8 +170,8 @@ bool VmManager::isVmRunning() const {
 
 void VmManager::onLogLineRead(const QString& line) {
     double elapsed = m_timer.elapsed() / 1000.0;
-    m_fullLogText += line + "\n";
-    m_pipelineManager->processLogLine(line.toStdString(), elapsed);
+    std::string annotated = m_pipelineManager->processLogLine(line.toStdString(), elapsed);
+    m_fullLogText += QString::fromStdString(annotated) + "\n";
 }
 
 void VmManager::onLauncherStateChanged(bool running) {
