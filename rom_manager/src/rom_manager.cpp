@@ -147,9 +147,21 @@ bool RomManager::installRom(const std::string& zipPath, const std::string& romNa
 
     std::filesystem::path targetFolder = m_romsDir / meta.name;
     if (std::filesystem::exists(targetFolder)) {
-        outError = "A ROM with the name '" + meta.name + "' is already installed.";
-        LOG_ROM_WARN("Install failed. ROM folder already exists: {}", targetFolder.string());
-        return false;
+        std::filesystem::path configPath = targetFolder / "boot_config.json";
+        if (std::filesystem::exists(configPath)) {
+            outError = "A ROM with the name '" + meta.name + "' is already installed.";
+            LOG_ROM_WARN("Install failed. ROM folder already exists with valid boot_config.json: {}", targetFolder.string());
+            return false;
+        } else {
+            LOG_ROM_WARN("Install warning. Incomplete/corrupted ROM folder found at '{}' (missing boot_config.json). Cleaning up...", targetFolder.string());
+            try {
+                std::filesystem::remove_all(targetFolder);
+            } catch (const std::exception& e) {
+                outError = "An incomplete ROM installation directory exists at '" + targetFolder.string() + "' and could not be cleaned up: " + e.what();
+                LOG_ROM_ERROR("Install cleanup failed. {}", outError);
+                return false;
+            }
+        }
     }
 
     LOG_ROM_INFO("Installing ROM '{}' to '{}'", meta.name, targetFolder.string());
@@ -277,6 +289,15 @@ std::vector<RomMetadata> RomManager::getInstalledRoms() const {
             RomMetadata meta;
             if (loadMetadata(entry.path(), meta)) {
                 roms.push_back(meta);
+            } else {
+                // If it is an incomplete/interrupted installation folder (missing metadata.json),
+                // automatically clean it up so it does not block future installations.
+                LOG_ROM_WARN("Auto-cleaning corrupted/incomplete ROM directory: {}", entry.path().string());
+                try {
+                    std::filesystem::remove_all(entry.path());
+                } catch (...) {
+                    // Ignore transient cleanup errors
+                }
             }
         }
     }
