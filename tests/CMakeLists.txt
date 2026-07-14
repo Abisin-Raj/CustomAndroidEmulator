@@ -7,4 +7,5 @@ target_link_libraries(run_tests PRIVATE
     models
     image_parser
     boot_manager
+    rom_manager
 )

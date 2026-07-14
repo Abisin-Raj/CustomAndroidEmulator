@@ -3,6 +3,8 @@
 #include "image_parser/vbmeta_parser.h"
 #include "image_parser/ext4_parser.h"
 #include "boot_manager/boot_manager.h"
+#include "rom_manager/rom_manager.h"
+#include "models/rom_metadata.h"
 #include <iostream>
 #include <fstream>
 #include <cassert>
@@ -173,6 +175,31 @@ int main() {
     testVbmetaParser();
     testExt4Parser();
     testBootManagerValidation();
+
+    std::filesystem::path realRom = "PixelExperience_violet-13.0-20240127-0711-OFFICIAL.zip";
+    if (std::filesystem::exists(realRom)) {
+        std::cout << "\n======================================\n";
+        std::cout << "Testing real ROM file: " << realRom.filename().string() << "\n";
+        std::cout << "======================================\n";
+        RomManager manager("test_real_rom_dir");
+        RomMetadata meta;
+        std::string error;
+        bool valid = manager.validateRomZip(realRom.string(), meta, error);
+        if (valid) {
+            std::cout << "[SUCCESS] ROM is valid and recognizable!\n";
+            std::cout << "  Name:            " << meta.name << "\n";
+            std::cout << "  Device Model:    " << meta.device << "\n";
+            std::cout << "  Codename/Board:  " << meta.codename << "\n";
+            std::cout << "  Android Version: " << meta.androidVersion << "\n";
+            std::cout << "  Architecture:    " << meta.architecture << "\n";
+            std::cout << "  Status:          " << meta.status << "\n";
+        } else {
+            std::cout << "[FAIL] ROM is not recognized as valid!\n";
+            std::cout << "  Error: " << error << "\n";
+        }
+        std::filesystem::remove_all("test_real_rom_dir");
+        std::cout << "======================================\n";
+    }
 
     std::cout << "======================================\n";
     std::cout << "All unit tests completed successfully!\n";
