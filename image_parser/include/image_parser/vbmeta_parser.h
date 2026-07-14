@@ -1,14 +1,6 @@
 #pragma once
-#include <string>
+#include "models/vbmeta_info.h"
 #include <filesystem>
-
-struct VbmetaInfo {
-    bool isValid = false;
-    bool avbEnabled = false;
-    std::string releaseString;
-    uint32_t flags = 0;
-    uint64_t rollbackIndex = 0;
-};
 
 class VbmetaParser {
 public:

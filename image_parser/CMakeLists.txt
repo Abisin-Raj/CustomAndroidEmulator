@@ -15,4 +15,5 @@ target_include_directories(image_parser PUBLIC
 target_link_libraries(image_parser PUBLIC
     core
     Qt6::Core
+    models
 )
