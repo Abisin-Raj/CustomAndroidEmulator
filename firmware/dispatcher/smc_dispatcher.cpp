@@ -55,13 +55,13 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
             }
             // Service recognized the owner+service but not this command
             spdlog::warn("[SCM] UNIMPLEMENTED command — {}", req.id.toString());
-            return { SMCCC_RET_NOT_SUPPORTED, false };
+            return { SMCCC_RET_NOT_SUPPORTED, x1, x2, x3, false };
         }
     }
 
     // No service handles this (owner, service_id) pair at all
     spdlog::warn("[SCM] NO HANDLER for {} — returning NOT_SUPPORTED", req.id.toString());
-    return { SMCCC_RET_NOT_SUPPORTED, false };
+    return { SMCCC_RET_NOT_SUPPORTED, x1, x2, x3, false };
 }
 
 } // namespace firmware

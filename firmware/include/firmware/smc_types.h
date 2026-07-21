@@ -41,6 +41,9 @@ struct SmcRequest {
 // ---------------------------------------------------------------------------
 struct SmcResult {
     uint64_t x0 = 0xFFFFFFFFFFFFFFFFULL; // Default: NOT_SUPPORTED
+    uint64_t x1 = 0;
+    uint64_t x2 = 0;
+    uint64_t x3 = 0;
     bool     handled = false;
 };
 

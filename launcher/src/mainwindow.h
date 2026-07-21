@@ -19,6 +19,8 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override = default;
+    
+    void autoLaunchRom(const QString& romName);
 
 private slots:
     void onSidebarSelectionChanged(QListWidgetItem* current, QListWidgetItem* previous);

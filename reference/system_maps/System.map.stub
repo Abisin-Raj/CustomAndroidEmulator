@@ -1,0 +1,5 @@
+# INTERCEPTOR VALIDATION ONLY. Performed using a stub System.map.
+# Results validate the GDB interception infrastructure only and do not
+# establish kernel compatibility or emulator correctness.
+ffffff8008000000 T _text
+ffffff800888a250 T qcom_scm_set_warm_boot_addr

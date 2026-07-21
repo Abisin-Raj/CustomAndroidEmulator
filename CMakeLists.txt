@@ -21,6 +21,7 @@ message(STATUS "Found LibArchive: ${LibArchive_VERSION}")
 
 # Add subdirectories
 add_subdirectory(core)
+add_subdirectory(behavior_exploration_tool)
 add_subdirectory(models)
 add_subdirectory(image_converter)
 add_subdirectory(image_parser)

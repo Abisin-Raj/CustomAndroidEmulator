@@ -26,6 +26,7 @@ target_link_libraries(virtual_machine PUBLIC
     boot_session
     kernel_runtime
     boot_pipeline
+    behavior_exploration_tool
     Qt6::Core
     nlohmann_json::nlohmann_json
 )

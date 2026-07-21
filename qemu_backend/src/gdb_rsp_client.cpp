@@ -181,6 +181,38 @@ std::vector<uint8_t> GdbRspClient::readMemory(uint64_t addr, int len) {
 }
 
 // ---------------------------------------------------------------------------
+// writeMemory — RSP 'M' command: write hex-encoded bytes to guest VA
+// ---------------------------------------------------------------------------
+bool GdbRspClient::writeMemory(uint64_t addr, const std::vector<uint8_t>& data) {
+    if (data.empty()) return true;
+
+    // Build hex payload: ADDR,LEN:HEXBYTES
+    QString hex;
+    hex.reserve(static_cast<int>(data.size()) * 2);
+    for (uint8_t b : data)
+        hex += QString("%1").arg(b, 2, 16, QChar('0'));
+
+    QString cmd = QString("M%1,%2:%3")
+        .arg(addr, 0, 16)
+        .arg(static_cast<uint64_t>(data.size()), 0, 16)
+        .arg(hex);
+
+    if (!sendPacket(cmd)) return false;
+
+    QString resp;
+    if (!recvPacket(resp)) return false;
+
+    if (resp != "OK") {
+        spdlog::warn("[GDB] WriteMemory at 0x{:x} ({}B) failed: '{}'",
+            addr, data.size(), resp.toStdString());
+        return false;
+    }
+    return true;
+}
+
+
+
+// ---------------------------------------------------------------------------
 // insertBreakpoint / removeBreakpoint
 // Hardware breakpoints (Z1/z1) work for kernel text (non-writable pages)
 // ---------------------------------------------------------------------------

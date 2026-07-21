@@ -31,6 +31,9 @@ void initLogger() {
     auto logger = std::make_shared<spdlog::logger>("global", sinks.begin(), sinks.end());
     spdlog::set_default_logger(logger);
     
+    // Flush immediately for real-time log panel updates in launcher
+    spdlog::flush_on(spdlog::level::debug);
+    
     // Set default log level to debug
     spdlog::set_level(spdlog::level::debug);
     

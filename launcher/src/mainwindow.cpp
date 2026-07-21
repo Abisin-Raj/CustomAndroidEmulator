@@ -789,3 +789,19 @@ void MainWindow::setupAboutPage() {
     layout->addStretch();
     m_stackedWidget->addWidget(page);
 }
+
+void MainWindow::autoLaunchRom(const QString& romName) {
+    QString romDir = QCoreApplication::applicationDirPath() + "/roms/" + romName;
+    m_timelineListWidget->clear();
+    m_crashAnalyzerEdit->clear();
+    m_logsTextEdit->clear();
+    m_logTabWidget->setCurrentIndex(0);
+    resetBootChecklist();
+    
+    LOG_LAUNCHER_INFO("Auto-launching ROM: {}", romName.toStdString());
+    if (m_vmManager->startVm(romName.toStdString(), romDir.toStdString())) {
+        LOG_LAUNCHER_INFO("Virtual machine launcher spawned successfully via auto-launch.");
+    } else {
+        LOG_LAUNCHER_ERROR("Failed to auto-launch ROM: {}", romName.toStdString());
+    }
+}

@@ -26,6 +26,7 @@ target_link_libraries(qemu_backend PUBLIC
     models
     firmware
     kernel_analysis
+    behavior_exploration_tool
     Qt6::Core
     Qt6::Network
 )

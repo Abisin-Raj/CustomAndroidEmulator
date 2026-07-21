@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <string>
 
+#include <vector>
+
 namespace qemu_backend {
 
 // ---------------------------------------------------------------------------
@@ -31,6 +33,7 @@ class SmcInterceptorWorker : public QObject {
 public:
     explicit SmcInterceptorWorker(
         firmware::SmcDispatcher& dispatcher,
+        const kernel_analysis::SymbolResolver& resolver,
         quint16 gdbPort,
         uint64_t functionVirtualAddr,
         QObject* parent = nullptr);
@@ -46,12 +49,13 @@ signals:
     void nextBlockerDetected(const QString& description);
 
 private:
-    // Scan at most scanBytes bytes starting from startAddr for SMC opcode.
-    // Returns the virtual address of the SMC instruction, or 0 if not found.
-    uint64_t findSmcInstruction(class GdbRspClient& gdb,
-                                uint64_t startAddr, int scanBytes);
+    // Scan at most scanBytes bytes starting from startAddr for SMC opcodes.
+    // Returns the virtual addresses of all found SMC instructions.
+    std::vector<uint64_t> findSmcInstructions(class GdbRspClient& gdb,
+                                              uint64_t startAddr, int scanBytes);
 
     firmware::SmcDispatcher& m_dispatcher;
+    const kernel_analysis::SymbolResolver& m_resolver;
     quint16    m_gdbPort;
     uint64_t   m_functionAddr;
     std::atomic<bool> m_stop{false};

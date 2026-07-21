@@ -18,4 +18,5 @@ target_link_libraries(run_tests PRIVATE
     boot_pipeline
     kernel_analysis
     firmware
+    behavior_exploration_tool
 )

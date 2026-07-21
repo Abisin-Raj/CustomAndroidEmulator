@@ -18,7 +18,7 @@ public:
     bool loadSystemMapSymbols(const std::string& mapPath);
 
     // Resolve a virtual address to function_name+offset
-    std::string resolveAddress(uint64_t address);
+    std::string resolveAddress(uint64_t address) const;
 
     // Look up a symbol by exact name and return its virtual address.
     // Returns 0 if the symbol is not found.

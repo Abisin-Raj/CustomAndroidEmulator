@@ -52,6 +52,8 @@ public:
     static constexpr int REG_X4  =  4;
     static constexpr int REG_X5  =  5;
     static constexpr int REG_X6  =  6;
+    static constexpr int REG_X7  =  7;
+    static constexpr int REG_X8  =  8;   // Indirect result location (AAPCS64 9th arg)
     static constexpr int REG_X30 = 30;  // Link Register (LR)
     static constexpr int REG_SP  = 31;
     static constexpr int REG_PC  = 32;
@@ -60,9 +62,11 @@ public:
     bool readRegister(int regNum, uint64_t& value);
     bool writeRegister(int regNum, uint64_t value);
 
-    // Read a block of guest memory (virtual address, length in bytes).
-    // Returns the bytes read; empty on error.
+    // Read / write a block of guest memory (virtual addresses).
+    // readMemory returns bytes read; empty on error.
+    // writeMemory returns true on success.
     std::vector<uint8_t> readMemory(uint64_t addr, int len);
+    bool                 writeMemory(uint64_t addr, const std::vector<uint8_t>& data);
 
     // --- Breakpoints (hardware, Z1/z1) ---
     // Hardware breakpoints work even for ROM / non-writable kernel text.

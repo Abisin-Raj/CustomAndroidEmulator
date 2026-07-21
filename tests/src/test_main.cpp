@@ -24,6 +24,9 @@
 #include "firmware/smc_types.h"
 #include "firmware/smc_dispatcher.h"
 #include "firmware/scm_services.h"
+#include <QCoreApplication>
+#include <QTimer>
+#include "virtual_machine/vm_manager.h"
 #include <iostream>
 #include <fstream>
 #include <cassert>
@@ -494,12 +497,356 @@ void testKernelAnalysis() {
     TEST_ASSERT(resolver.resolveAddress(0xffffff8008000000) == "0xffffff8008000000", "Should fall back to raw hex if before first symbol");
 }
 
-int main() {
+#include "behavior_exploration_tool/bet_system.h"
+#include <filesystem>
+
+void testBehaviorExplorationTool() {
+    std::cout << "\n--- Behavior Exploration Tool (BET) Tests ---\n";
+
+    std::string testDbDir = "test_bet_db";
+    std::string testDbFile = testDbDir + "/bet_experiments.json";
+    
+    // Clean potential leftover
+    std::filesystem::remove_all(testDbDir);
+
+    // 1. Initialize BetSystem
+    bet::BetSystem& system = bet::BetSystem::instance();
+    system.initialize(testDbDir);
+    
+    // 2. Start a session
+    system.startSession("test_rom", "5.4.0", "1.0.0");
+    int activeId = system.getActiveBootId();
+    TEST_ASSERT(activeId == 1, "First session ID must be 1");
+
+    // 3. Register intercepts
+    std::vector<uint64_t> before = { 0xC2000601, 1, 0x82000111, 0, 0, 0, 0, 0 };
+    std::vector<uint64_t> after = { 0, 1, 0, 0, 0, 0, 0, 0 };
+    std::map<std::string, std::string> meta = { {"symbol", "qcom_scm_set_warm_boot_addr+0xc"} };
+    
+    // Feed 6 identical SMC intercepts at the same PC to trigger BlockerDetector's Repeated SMC rule
+    for (int i = 0; i < 6; ++i) {
+        system.registerIntercept("SMC", "C2000601", 0xffffff800888a25c, 0xffffff800888a200, 0xffffffc000100000, before, before, after, true, "", meta);
+    }
+
+    // Push log lines (including driver probe success to test ProgressAnalyzer)
+    system.pushLogLine("[0.012345] Booting Linux...");
+    system.pushLogLine("[1.020304] pm8005-regulator: probe of pm8005-regulator succeeded");
+    system.pushLogLine("[1.500000] Kernel panic - not syncing: Attempted to kill init!");
+
+    // 4. End the session
+    system.endSession("Failed (Panic)");
+
+    // 5. Verify database saved and contains the run
+    TEST_ASSERT(std::filesystem::exists(testDbFile), "Database file must be written to disk");
+    
+    bet::ExperimentRun run;
+    bool found = system.getDatabase().getRun(1, run);
+    TEST_ASSERT(found, "Run #1 must exist in the database");
+    TEST_ASSERT(run.romName == "test_rom", "ROM name must match 'test_rom'");
+    TEST_ASSERT(run.progress.totalSmcCount == 6, "Total SMC count must equal 6");
+    TEST_ASSERT(run.progress.uniqueSmcCount == 1, "Unique SMC count must equal 1");
+    TEST_ASSERT(run.progress.initializedDriversCount == 1, "Initialized drivers count must equal 1");
+    TEST_ASSERT(run.progress.initializedDrivers[0] == "pm8005-regulator", "Driver name must be parsed correctly");
+
+    // 6. Verify timeline parsing
+    TEST_ASSERT(run.timeline.size() >= 4, "Timeline must contain BootStart, Kernel Entry, Driver success, and Panic");
+    bool hasDriverEvent = false;
+    bool hasPanicEvent = false;
+    for (const auto& te : run.timeline) {
+        if (te.category == "Driver") hasDriverEvent = true;
+        if (te.category == "Panic") hasPanicEvent = true;
+    }
+    TEST_ASSERT(hasDriverEvent, "Timeline must capture the driver probe event");
+    TEST_ASSERT(hasPanicEvent, "Timeline must capture the kernel panic event");
+
+    // 7. Verify comparison engine works (create session 2 with more progress)
+    system.startSession("test_rom", "5.4.0", "1.0.0");
+    TEST_ASSERT(system.getActiveBootId() == 2, "Second session ID must be 2");
+    
+    // Run 2 has 1 extra driver probe success
+    system.registerIntercept("SMC", "C2000601", 0xffffff800888a25c, 0xffffff800888a200, 0xffffffc000100000, before, before, after, true, "", meta);
+    system.pushLogLine("[1.020304] pm8005-regulator: probe of pm8005-regulator succeeded");
+    system.pushLogLine("[2.010101] ufs_qcom: probe of ufs_qcom succeeded");
+    system.endSession("Success");
+
+    bet::ExperimentRun run2;
+    found = system.getDatabase().getRun(2, run2);
+    TEST_ASSERT(found, "Run #2 must exist in the database");
+    
+    // Compare Run 2 with Run 1
+    bet::ComparisonEngine compEngine;
+    bet::ComparisonReport comp = compEngine.compareRuns(run2.progress, run.progress);
+    TEST_ASSERT(comp.progressStatus == "Progressed", "Run #2 status must be 'Progressed' compared to Run 1");
+    TEST_ASSERT(comp.driverCountDelta == 1, "Driver count delta must equal +1");
+    TEST_ASSERT(comp.newDrivers.size() == 1, "Should detect 1 new driver");
+    TEST_ASSERT(comp.newDrivers[0] == "ufs_qcom", "New driver must be 'ufs_qcom'");
+
+    // Clean up
+    std::filesystem::remove_all(testDbDir);
+    std::cout << "[PASS] Behavior Exploration Tool tests completed successfully!\n";
+}
+
+#include "behavior_exploration_tool/override_engine.h"
+#include "behavior_exploration_tool/bet_replayer.h"
+
+void testOverrideAndReplay() {
+    std::cout << "\n--- Override Engine & Replay Client Tests ---\n";
+
+    std::string testOverridesDir = "test_overrides_dir";
+    std::filesystem::create_directories(testOverridesDir);
+    std::string testOverridesFile = testOverridesDir + "/bet_overrides.json";
+
+    // --- 1. Test Override Rule Schema Validation ---
+    {
+        bet::OverrideEngine engine;
+        
+        // Write invalid JSON rule file (invalid scope)
+        std::ofstream out(testOverridesFile);
+        out << R"({
+            "enabled": true,
+            "rules": [
+                {
+                    "id": "rule_invalid",
+                    "enabled": true,
+                    "scope": "invalid-scope",
+                    "category": "SMC",
+                    "name": "0xC2000601",
+                    "action": "override_registers",
+                    "overrides": { "x0": 0 }
+                }
+            ]
+        })";
+        out.close();
+        
+        bool ok = engine.loadFromFile(testOverridesFile);
+        TEST_ASSERT(!ok, "OverrideEngine must reject rules with invalid scopes");
+    }
+
+    {
+        bet::OverrideEngine engine;
+        // Write invalid JSON rule file (invalid action name)
+        std::ofstream out(testOverridesFile);
+        out << R"({
+            "enabled": true,
+            "rules": [
+                {
+                    "id": "rule_invalid_action",
+                    "enabled": true,
+                    "scope": "global",
+                    "category": "SMC",
+                    "name": "0xC2000601",
+                    "action": "invalid_action",
+                    "overrides": { "x0": 0 }
+                }
+            ]
+        })";
+        out.close();
+        
+        bool ok = engine.loadFromFile(testOverridesFile);
+        TEST_ASSERT(!ok, "OverrideEngine must reject rules with unsupported actions");
+    }
+
+    {
+        bet::OverrideEngine engine;
+        // Write valid JSON rules with scoped priorities
+        std::ofstream out(testOverridesFile);
+        out << R"({
+            "enabled": true,
+            "rules": [
+                {
+                    "id": "global_rule",
+                    "enabled": true,
+                    "scope": "global",
+                    "description": "Global SMC override description",
+                    "category": "SMC",
+                    "name": "0xC2000601",
+                    "action": "override_registers",
+                    "overrides": { "x0": 100 }
+                },
+                {
+                    "id": "rom_rule",
+                    "enabled": true,
+                    "scope": "rom",
+                    "romName": "test_rom_specific",
+                    "description": "ROM specific SMC override description",
+                    "category": "SMC",
+                    "name": "0xC2000601",
+                    "action": "override_registers",
+                    "overrides": { "x0": 200 }
+                },
+                {
+                    "id": "boot_rule",
+                    "enabled": true,
+                    "scope": "boot-id",
+                    "bootId": 5,
+                    "description": "Boot specific SMC override description",
+                    "category": "SMC",
+                    "name": "0xC2000601",
+                    "action": "override_registers",
+                    "overrides": { "x0": 300 }
+                }
+            ]
+        })";
+        out.close();
+
+        bool ok = engine.loadFromFile(testOverridesFile);
+        TEST_ASSERT(ok, "OverrideEngine must successfully load valid configuration rules");
+
+        // --- 2. Test Rule Scoped Priority Matching ---
+        std::string ruleId, ruleDesc;
+        std::map<std::string, uint64_t> overrides;
+        
+        // global match
+        bool found = engine.findOverride("SMC", "0xC2000601", "other_rom", "5.4", 1, ruleId, ruleDesc, overrides);
+        TEST_ASSERT(found && ruleId == "global_rule" && overrides["x0"] == 100, "Should match global scope with lowest priority");
+
+        // rom matches and overrides global
+        found = engine.findOverride("SMC", "0xC2000601", "test_rom_specific", "5.4", 1, ruleId, ruleDesc, overrides);
+        TEST_ASSERT(found && ruleId == "rom_rule" && overrides["x0"] == 200, "Should match rom scope override over global");
+
+        // boot-id matches and overrides both
+        found = engine.findOverride("SMC", "0xC2000601", "test_rom_specific", "5.4", 5, ruleId, ruleDesc, overrides);
+        TEST_ASSERT(found && ruleId == "boot_rule" && overrides["x0"] == 300, "Should match boot-id scope override with highest priority");
+    }
+
+    // --- 3. Test Offline Replayer and filtering ---
+    std::string testTraceFile = testOverridesDir + "/test_trace.json";
+    {
+        // Construct mock trace array
+        nlohmann::json jTrace = nlohmann::json::array();
+        
+        // Add boot start
+        jTrace.push_back({
+            {"bootId", 1}, {"elapsedSeconds", 0.0}, {"timestamp", "2026-07-17T00:00:00Z"},
+            {"type", "BootStart"}, {"category", "System"}, {"name", "boot_start"},
+            {"cpu", -1}, {"pc", "0x0"}, {"lr", "0x0"}, {"sp", "0x0"},
+            {"registersBefore", nlohmann::json::array()},
+            {"registersDispatcher", nlohmann::json::array()},
+            {"registersAfter", nlohmann::json::array()},
+            {"handled", false}, {"overrideRuleId", ""}, {"details", "boot start"}, {"metadata", nlohmann::json::object()}
+        });
+
+        // Add intercept 1 (Category SMC, PC=0x1000)
+        jTrace.push_back({
+            {"bootId", 1}, {"elapsedSeconds", 0.5}, {"timestamp", "2026-07-17T00:00:00Z"},
+            {"type", "GuestIntercept"}, {"category", "SMC"}, {"name", "0xC2000601"},
+            {"cpu", 0}, {"pc", "0x1000"}, {"lr", "0x0"}, {"sp", "0x0"},
+            {"registersBefore", {1, 2}},
+            {"registersDispatcher", {1, 2}},
+            {"registersAfter", {0, 1}},
+            {"handled", true}, {"overrideRuleId", "global_rule"}, {"details", "SMC 0xC2000601 matched"}, {"metadata", nlohmann::json::object()}
+        });
+
+        // Add intercept 2 (Category MMIO, PC=0x2000)
+        jTrace.push_back({
+            {"bootId", 1}, {"elapsedSeconds", 1.0}, {"timestamp", "2026-07-17T00:00:00Z"},
+            {"type", "GuestIntercept"}, {"category", "MMIO"}, {"name", "0x01C20000"},
+            {"cpu", 1}, {"pc", "0x2000"}, {"lr", "0x0"}, {"sp", "0x0"},
+            {"registersBefore", {10}},
+            {"registersDispatcher", {10}},
+            {"registersAfter", {20}},
+            {"handled", true}, {"overrideRuleId", ""}, {"details", "MMIO read"}, {"metadata", nlohmann::json::object()}
+        });
+
+        std::ofstream out(testTraceFile);
+        out << jTrace.dump(4);
+        out.close();
+    }
+
+    {
+        bet::BetReplayer replayer;
+        bool ok = replayer.loadRunTrace(testTraceFile);
+        TEST_ASSERT(ok, "BetReplayer must successfully load trace JSON");
+        TEST_ASSERT(replayer.getEventCount() == 3, "Trace must have exactly 3 events");
+
+        // Test navigation
+        bet::BetEvent ev;
+        bool step = replayer.jumpToEvent(1, ev);
+        TEST_ASSERT(step && ev.category == "SMC" && ev.pc == 0x1000, "Should jump to event index 1");
+
+        step = replayer.nextEvent(ev);
+        TEST_ASSERT(step && ev.category == "MMIO" && ev.pc == 0x2000, "Should step to next event");
+
+        step = replayer.prevEvent(ev);
+        TEST_ASSERT(step && ev.category == "SMC" && ev.pc == 0x1000, "Should step to previous event");
+
+        // Test Filtering (Category filter)
+        replayer.setCategoryFilter("MMIO");
+        TEST_ASSERT(replayer.getEventCount() == 1, "Filtered count for Category 'MMIO' must equal 1");
+        replayer.jumpToEvent(0, ev);
+        TEST_ASSERT(ev.pc == 0x2000, "Filtered event must be MMIO at PC 0x2000");
+
+        // Test Filtering (PC filter)
+        replayer.clearFilters();
+        replayer.setPcFilter(0x1000);
+        TEST_ASSERT(replayer.getEventCount() == 1, "Filtered count for PC 0x1000 must equal 1");
+        replayer.jumpToEvent(0, ev);
+        TEST_ASSERT(ev.category == "SMC", "Filtered event must be SMC at PC 0x1000");
+
+        // Test Search query keyword
+        replayer.clearFilters();
+        auto searchRes = replayer.searchEvents("Matched");
+        TEST_ASSERT(searchRes.size() == 1 && searchRes[0].category == "SMC", "Search query 'Matched' must return 1 matching SMC event");
+
+        // Test Export
+        std::string jsonStr = replayer.exportEventJson(1);
+        TEST_ASSERT(jsonStr.find("0xC2000601") != std::string::npos, "Exported event JSON must contain the SMC name '0xC2000601'");
+    }
+
+    std::filesystem::remove_all(testOverridesDir);
+    std::cout << "[PASS] Override Engine & Replay Client tests completed successfully!\n";
+}
+
+void runRealBootForDiagnostic(int durationSeconds) {
+    std::cout << "\n--- Headless VM Boot Tracing ---\n";
+    int argc = 1;
+    char* argv[] = { (char*)"run_tests.exe", nullptr };
+    QCoreApplication app(argc, argv);
+
+    core::ConfigManager::initializeDefaultConfigs();
+
+    VmManager vmManager;
+    std::string romName = "PixelExperience_violet-13.0-20240127-0711-OFFICIAL";
+    std::filesystem::path romDir = "C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidEmulator/build/launcher/roms/PixelExperience_violet-13.0-20240127-0711-OFFICIAL";
+    
+    std::cout << "Starting VM for ROM: " << romName << " at " << romDir.string() << std::endl;
+    bool started = vmManager.startVm(romName, romDir);
+    if (!started) {
+        std::cout << "Failed to start VM!" << std::endl;
+        return;
+    }
+
+    // Set a timer to stop VM and exit app
+    QTimer::singleShot(durationSeconds * 1000, [&]() {
+        std::cout << "Timer expired. Stopping VM..." << std::endl;
+        vmManager.stopVm();
+        // Wait 1 second for QEMU process to stop cleanly and trigger state change
+        QTimer::singleShot(1000, [&]() {
+            app.quit();
+        });
+    });
+
+    app.exec();
+    std::cout << "Headless VM Boot Tracing completed.\n";
+}
+
+int main(int argc, char* argv[]) {
     core::initLogger();
+
+    // Check for real VM command-line flag
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--run-real-vm") {
+            runRealBootForDiagnostic(20);
+            return 0;
+        }
+    }
+
     std::cout << "======================================\n";
     std::cout << "Starting CustomAndroidEmulator Tests\n";
     std::cout << "======================================\n";
 
+    testBehaviorExplorationTool();
+    testOverrideAndReplay();
     testBootImgParser();
     testVbmetaParser();
     testExt4Parser();
@@ -552,8 +899,8 @@ int main() {
         TEST_ASSERT(id.isFastCall() == true,  "0xC2000601 must be a Fast Call");
         TEST_ASSERT(id.is64bit()    == true,  "0xC2000601 must be SMC64");
         TEST_ASSERT(id.owner()      == 0x02,  "0xC2000601 owner must be 0x02 (SIP)");
-        TEST_ASSERT(id.service()    == 0x06,  "0xC2000601 service must be 0x06 (Boot)");
-        TEST_ASSERT(id.command()    == 0x01,  "0xC2000601 command must be 0x01 (BOOT_ADDR_MC)");
+        TEST_ASSERT(id.service()    == 0x06,  "0xC2000601 service must be 0x06 (Info)");
+        TEST_ASSERT(id.command()    == 0x01,  "0xC2000601 command must be 0x01 (INFO_IS_CALL_AVAIL)");
     }
 
     // --- Test 2: Dispatcher without services returns NOT_SUPPORTED ---
@@ -574,16 +921,16 @@ int main() {
             "Dispatcher must have exactly 1 registered service after registration");
     }
 
-    // --- Test 4: QCOM_SCM_BOOT_ADDR_MC dispatched and returns SUCCESS ---
+    // --- Test 4: QCOM_SCM_BOOT_SET_ADDR_MC dispatched and returns SUCCESS ---
     {
         firmware::SmcDispatcher dispatcher;
         dispatcher.registerService(std::make_unique<firmware::QcomBootService>());
 
         constexpr uint64_t warmBootAddr = 0xFFFFFF8008090000ULL;
         firmware::SmcResult result = dispatcher.dispatch(
-            0xC2000601ULL,   // x0 = SMC ID
-            warmBootAddr,    // x1 = physical entry point
-            ~0ULL,           // x2 = CPU affinity mask
+            0xC2000111ULL,   // x0 = SMC ID (Service=1, Cmd=0x11)
+            1ULL,            // x1 = arginfo
+            warmBootAddr,    // x2 = physical entry point
             ~0ULL,           // x3
             ~0ULL,           // x4
             ~0ULL,           // x5
@@ -591,25 +938,44 @@ int main() {
         );
 
         TEST_ASSERT(result.handled,
-            "QCOM_SCM_BOOT_ADDR_MC must be handled by QcomBootService");
+            "QCOM_SCM_BOOT_SET_ADDR_MC must be handled by QcomBootService");
         TEST_ASSERT(result.x0 == firmware::SMCCC_RET_SUCCESS,
-            "QCOM_SCM_BOOT_ADDR_MC must return X0 = 0 (SMCCC_RET_SUCCESS)");
+            "QCOM_SCM_BOOT_SET_ADDR_MC must return X0 = 0 (SMCCC_RET_SUCCESS)");
     }
 
-    // --- Test 5: Unknown command in boot service returns NOT_SUPPORTED ---
+    // --- Test 5: QcomInfoService registered and returns CALL_AVAIL ---
+    {
+        firmware::SmcDispatcher dispatcher;
+        dispatcher.registerService(std::make_unique<firmware::QcomInfoService>());
+
+        firmware::SmcResult result = dispatcher.dispatch(
+            0xC2000601ULL,   // x0 = SMC ID (Service=6, Cmd=1)
+            1ULL,            // x1 = arginfo
+            0x82000111ULL    // x2 = Function ID queried
+        );
+
+        TEST_ASSERT(result.handled,
+            "QCOM_SCM_INFO_IS_CALL_AVAIL must be handled by QcomInfoService");
+        TEST_ASSERT(result.x0 == firmware::SMCCC_RET_SUCCESS,
+            "QCOM_SCM_INFO_IS_CALL_AVAIL must return X0 = 0 (SUCCESS)");
+        TEST_ASSERT(result.x1 == 1,
+            "QCOM_SCM_INFO_IS_CALL_AVAIL must return X1 = 1 (Available)");
+    }
+
+    // --- Test 6: Unknown command in boot service returns NOT_SUPPORTED ---
     {
         firmware::SmcDispatcher dispatcher;
         dispatcher.registerService(std::make_unique<firmware::QcomBootService>());
 
-        // 0xC2000699 — valid owner+service but unknown command 0x99
-        firmware::SmcResult result = dispatcher.dispatch(0xC2000699ULL);
+        // 0xC2000199 — valid owner+service (1) but unknown command 0x99
+        firmware::SmcResult result = dispatcher.dispatch(0xC2000199ULL);
         TEST_ASSERT(!result.handled,
             "Unknown boot service command must return handled=false");
         TEST_ASSERT(result.x0 == firmware::SMCCC_RET_NOT_SUPPORTED,
             "Unknown boot service command must return SMCCC_RET_NOT_SUPPORTED");
     }
 
-    // --- Test 6: Completely unknown SMC ID returns NOT_SUPPORTED ---
+    // --- Test 7: Completely unknown SMC ID returns NOT_SUPPORTED ---
     {
         firmware::SmcDispatcher dispatcher;
         dispatcher.registerService(std::make_unique<firmware::QcomBootService>());
@@ -622,7 +988,7 @@ int main() {
             "Unknown owner SMC call must return SMCCC_RET_NOT_SUPPORTED");
     }
 
-    // --- Test 7: SmcId::toString() produces a non-empty readable string ---
+    // --- Test 8: SmcId::toString() produces a non-empty readable string ---
     {
         firmware::SmcId id;
         id.raw = 0xC2000601U;

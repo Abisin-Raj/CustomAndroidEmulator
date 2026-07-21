@@ -27,6 +27,12 @@ bool SymbolResolver::loadSystemMapSymbols(const std::string& mapPath) {
     size_t count = 0;
     while (std::getline(fs, line)) {
         if (line.empty()) continue;
+        
+        // Strip trailing carriage return for Windows compatibility
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty()) continue;
 
         std::stringstream ss(line);
         std::string addrStr, typeStr, name;
@@ -70,7 +76,7 @@ void SymbolResolver::finalizeSymbols() {
     LOG_PARSER_INFO("SymbolResolver: Finalized symbol table with {} entries", m_symbols.size());
 }
 
-std::string SymbolResolver::resolveAddress(uint64_t address) {
+std::string SymbolResolver::resolveAddress(uint64_t address) const {
     if (m_symbols.empty()) {
         std::stringstream ss;
         ss << "0x" << std::hex << address;

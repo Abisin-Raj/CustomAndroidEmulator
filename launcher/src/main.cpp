@@ -12,5 +12,13 @@ int main(int argc, char* argv[]) {
     MainWindow mainWindow;
     mainWindow.show();
 
+    // Support --autoboot <rom_name> argument to start VM without manual GUI clicks
+    QStringList args = QApplication::arguments();
+    int autobootIndex = args.indexOf("--autoboot");
+    if (autobootIndex != -1 && autobootIndex + 1 < args.size()) {
+        QString romName = args.at(autobootIndex + 1);
+        mainWindow.autoLaunchRom(romName);
+    }
+
     return app.exec();
 }

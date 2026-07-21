@@ -18,4 +18,5 @@ target_link_libraries(launcher PRIVATE
     boot_session
     kernel_runtime
     boot_pipeline
+    behavior_exploration_tool
 )

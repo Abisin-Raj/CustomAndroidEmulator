@@ -13,6 +13,7 @@ std::string KernelCommandLine::build(const std::string& baseCmdline, bool enforc
         bool hasConsole = false;
         bool hasEarlycon = false;
         bool hasDevkmsg = false;
+        bool hasNokaslr = false;
 
         while (ss >> token) {
             if (token.rfind("console=", 0) == 0) {
@@ -24,6 +25,9 @@ std::string KernelCommandLine::build(const std::string& baseCmdline, bool enforc
             } else if (token.rfind("printk.devkmsg=", 0) == 0) {
                 tokens.push_back("printk.devkmsg=on");
                 hasDevkmsg = true;
+            } else if (token == "nokaslr") {
+                tokens.push_back("nokaslr");
+                hasNokaslr = true;
             } else {
                 tokens.push_back(token);
             }
@@ -32,6 +36,7 @@ std::string KernelCommandLine::build(const std::string& baseCmdline, bool enforc
         if (!hasConsole) tokens.push_back("console=ttyAMA0");
         if (!hasEarlycon) tokens.push_back("earlycon=pl011,0x09000000");
         if (!hasDevkmsg) tokens.push_back("printk.devkmsg=on");
+        if (!hasNokaslr) tokens.push_back("nokaslr");
 
         std::stringstream out;
         for (size_t i = 0; i < tokens.size(); ++i) {

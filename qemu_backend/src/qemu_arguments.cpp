@@ -27,7 +27,7 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
         args << "-append" << "console=ttyAMA0 earlycon=pl011,0x09000000 printk.devkmsg=on";
     }
 
-    args << "-serial" << "mon:stdio";
+    args << "-serial" << "file:qemu_uart.log";
 
     if (!params.extraArgs.empty()) {
         QString extra = QString::fromStdString(params.extraArgs);

@@ -13,6 +13,7 @@
 #include "firmware/scm_services.h"
 #include "core/logger.h"
 #include "core/utils.h"
+#include "behavior_exploration_tool/bet_system.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
 
@@ -25,8 +26,9 @@ VmManager::VmManager(QObject* parent)
     , m_isRunning(false) {
     m_pipelineManager->initializeDefaultDetectors();
 
-    // Register QCOM boot SCM service (handles 0xC2000601 BOOT_ADDR_MC)
+    // Register QCOM boot SCM services (handles BOOT and INFO requests)
     m_smcDispatcher->registerService(std::make_unique<firmware::QcomBootService>());
+    m_smcDispatcher->registerService(std::make_unique<firmware::QcomInfoService>());
 
     connect(m_launcher, &QemuLauncher::stateChanged, this, &VmManager::onLauncherStateChanged);
     connect(m_launcher, &QemuLauncher::finished, this, &VmManager::onLauncherFinished);
@@ -189,6 +191,11 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
         }
     }
 
+    // Initialize and start Behavior Exploration Tool (BET) session
+    std::filesystem::path betDbDir = core::getExecutableDir() / "logs" / "bet";
+    bet::BetSystem::instance().initialize(betDbDir.string());
+    bet::BetSystem::instance().startSession(romName, "5.4.x", "1.0.0");
+
     // 6. Spawn QEMU
     m_timer.start();
     if (!m_launcher->start(qemuPath, args)) {
@@ -224,7 +231,10 @@ bool VmManager::isVmRunning() const {
 
 void VmManager::onLogLineRead(const QString& line) {
     double elapsed = m_timer.elapsed() / 1000.0;
-    std::string annotated = m_pipelineManager->processLogLine(line.toStdString(), elapsed);
+    std::string lineStr = line.toStdString();
+    bet::BetSystem::instance().pushLogLine(lineStr);
+    
+    std::string annotated = m_pipelineManager->processLogLine(lineStr, elapsed);
     m_fullLogText += QString::fromStdString(annotated) + "\n";
 }
 
@@ -277,6 +287,9 @@ void VmManager::onLauncherStateChanged(bool running) {
         m_pipelineManager->getSession().writeLogFile(logsDir.string(), m_fullLogText.toStdString());
         m_pipelineManager->getSession().writeJsonSummary(logsDir.string());
         m_pipelineManager->getSession().writeQemuCmdFile(logsDir.string());
+
+        // End Behavior Exploration Tool (BET) session
+        bet::BetSystem::instance().endSession(outcome);
 
         // Clean up temporary boot files
         if (!m_activeRomDir.empty()) {
