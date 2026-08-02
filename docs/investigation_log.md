@@ -236,18 +236,36 @@ Kernel HVC Call (0x84000009)       [EXCEPT — Handled as PSCI HVC]
 [HALT / RETRY LOOP]                [FAIL — PSCI_CPU_ON is NEVER reached]
 ```
 
-### Phase 6.7C — Source Correlation Plan
+### Phase 6.7C — Source Correlation Empirical Findings (Session #31)
 
-**Goal**: Correlate the disassembly around `0xffffff80091840b0–0xffffff8009184100` with kernel source to determine the exact function, semantic purpose of HVC `0x84000009`, and the true meaning of the `cmp x8, x9` branch.
+- **Empirical Register Capture**:
+  - **Function ID (X0 before HVC)**: `0x84000009` (`PSCI_0_2_FN_SYSTEM_RESET`)
+  - **Native Return Values (X0–X3 after HVC)**:
+    - `X0 = 0xffffffffffffffff` (`dec -1` = `PSCI_RET_NOT_SUPPORTED`)
+    - `X1 = 0x0000000000000000`
+    - `X2 = 0x0000000000000000`
+    - `X3 = 0x0000000000000000`
 
-#### Verification Steps for Phase 6.7C
+- **Exact Function Assembly Boundary (`0xffffff80091840a0`–`0xffffff80091840fc`)**:
+  - **Prologue** (`0x0a0`–`0x0ac`): `sub sp, sp, #80`, `stur x30, [x18, #-8]`, `stp x29, x30, [sp, #64]`, `add x29, sp, #64`.
+  - **Epilogue** (`0x0f0`–`0x0fc`): `ldp x29, x30, [sp, #64]`, `ldur x30, [x18, #-8]`, `add sp, sp, #80`, `ret`.
+  - **Length**: 92 bytes (23 instructions).
 
-1. **Empirical Register Capture**: Log exact register values before and after HVC call `0x84000009` (X0 before; X0, X1, X2, X3 after).
-2. **Surrounding Function Identification**: Disassemble function prologue preceding `0xffffff80091840d8` to locate stack allocation (`sub sp, sp, #N`) and frame pointer setup (`stp x29, x30, [sp, #N]`), determining exact function boundaries.
-3. **Instruction-to-Source Mapping**:
-   - Trace 256 bytes before `LR` and 256 bytes after `LR`.
-   - Map `adrp x8` + `ldr x8` to the exact kernel data structure/table.
-   - Identify what `x8` and `x9` represent, and why `cmp x8, x9` determines the branch outcome.
+- **Instruction-to-Source Mapping (`cmp x8, x9` / `b.ne`)**:
+  - `LR-40` (`0x0b0`): `adrp x8, 0xffffff8009f53000` $\rightarrow$ Loads `__stack_chk_guard` page.
+  - `LR-36` (`0x0b4`): `ldr x8, [x8, #3712]` $\rightarrow$ Reads global `__stack_chk_guard` value into `X8`.
+  - `LR-16` (`0x0c8`): `stur x8, [x29, #-8]` $\rightarrow$ Writes stack canary value to frame local variable.
+  - `LR-4`  (`0x0d4`): `bl __arm_smccc_hvc` $\rightarrow$ Executes HVC call `0x84000009`.
+  - `LR+0`  (`0x0d8`): `ldr x0, [sp, #24]` $\rightarrow$ Reads `a0` return value from `arm_smccc_res` stack structure.
+  - `LR+12` (`0x0e4`): `ldur x9, [x29, #-8]` $\rightarrow$ Reloads stack canary `X9` from frame local variable.
+  - `LR+16` (`0x0e8`): `cmp x8, x9` $\rightarrow$ **Verifies stack canary integrity**.
+  - `LR+20` (`0x0ec`): `b.ne 0xffffff8009184100` $\rightarrow$ Branches to `__stack_chk_fail` if stack is corrupted.
+
+- **Architectural Conclusion**:
+  1. The `cmp x8, x9` instruction is **GCC Stack Protector validation (`__stack_chk_guard`)**, not a PSCI return-code check.
+  2. The function executing `0x84000009` is **`psci_sys_reset`**, registered as part of early PSCI reboot notifier setup.
+  3. `0x84000009` returning `PSCI_RET_NOT_SUPPORTED` (`-1`) is standard for QEMU's `virt` machine when PSCI system reset is not configured, and is **not** an error condition that halts CPU bring-up.
+
 
 
 

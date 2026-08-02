@@ -486,13 +486,41 @@ void SmcInterceptorWorker::run() {
             spdlog::info("[SMC] Emulated: {} → X0=0x{:x} handled={} PC now=0x{:016x}",
                 req.id.toString(), result.x0, result.handled, pc + 4);
         } else {
-            spdlog::info("[SMC] Passthrough: {} (Unhandled) → stepping natively for QEMU processing",
-                req.id.toString());
+            spdlog::info("[SMC] Passthrough: {} (Unhandled) → stepping natively for QEMU processing (X0_before=0x{:x})",
+                req.id.toString(), x0);
             // Temporarily remove breakpoint, single-step the instruction natively via QEMU, then re-arm
             gdb.removeBreakpoint(pc);
             gdb.sendStep();
             gdb.insertBreakpoint(pc);
+
+            uint64_t post_x0 = 0, post_x1 = 0, post_x2 = 0, post_x3 = 0;
+            gdb.readRegister(GdbRspClient::REG_X0,     post_x0);
+            gdb.readRegister(GdbRspClient::REG_X0 + 1, post_x1);
+            gdb.readRegister(GdbRspClient::REG_X0 + 2, post_x2);
+            gdb.readRegister(GdbRspClient::REG_X0 + 3, post_x3);
+            spdlog::info("[SMC]   Post-step Native Register Return: X0=0x{:016x} (dec {:d}) X1=0x{:016x} X2=0x{:016x} X3=0x{:016x}",
+                post_x0, static_cast<int64_t>(post_x0), post_x1, post_x2, post_x3);
+
+            // Phase 6.7C: Deep caller instruction stream disassembly around LR
+            if (lr >= 0xffffff8000000000ULL) {
+                spdlog::info("[SMC] === Phase 6.7C Caller Disassembly Stream (LR=0x{:016x}) ===", lr);
+                uint64_t lrBase = (lr >= 128) ? (lr - 128) : lr;
+                auto lrInsns = gdb.readMemory(lrBase, 256);
+                if (!lrInsns.empty()) {
+                    for (int i = 0; i + 3 < static_cast<int>(lrInsns.size()); i += 4) {
+                        uint64_t insnAddr = lrBase + i;
+                        uint32_t insn = static_cast<uint32_t>(lrInsns[i])
+                                      | (static_cast<uint32_t>(lrInsns[i+1]) << 8)
+                                      | (static_cast<uint32_t>(lrInsns[i+2]) << 16)
+                                      | (static_cast<uint32_t>(lrInsns[i+3]) << 24);
+
+                        const char* marker = (insnAddr == lr) ? " <-- [LR]" : "";
+                        spdlog::info("[SMC]   0x{:016x}: 0x{:08x}{}", insnAddr, insn, marker);
+                    }
+                }
+            }
         }
+
 
 
 
