@@ -204,7 +204,46 @@ Investigate QEMU vCPU topology configuration parameters (`-smp 8,sockets=1,clust
 - **Architectural Findings**:
   - The target MPIDR passed to PSCI `CPU_ON` is derived directly from `cpu_logical_map(cpu)` (which comes from DTB `reg`).
   - When `patched_kernel.dtb` was provided (setting `cpu_logical_map(1) = 0x01`), the MPIDR matched QEMU's vCPU #1 assignment (`0x01`).
-  - The fact that CPU1 remained in reset even with matching MPIDR (`0x01`) confirms that secondary CPU bring-up requires platform machine hardware alignment (GIC Redistributor topology and/or platform power control registers) rather than MPIDR matching alone.
+  - **Conclusion**: This rules out MPIDR mismatch as the sole blocker. The remaining evidence strongly suggests that one or more additional platform-level requirements are preventing secondary CPU bring-up.
+
+### Phase 6.7A — Secondary CPU Bring-up Timeline Findings (Session #24–#27)
+
+- **Diagnostic Answers**:
+  1. **Q1: Does QEMU receive PSCI calls from the guest?**
+     - **Yes.** QEMU exception trace (`-d int,unimp,guest_errors`) confirmed the guest kernel issues PSCI calls via **HVC** (`hvc #0`, Exception 11 from EL1 to EL2 with ESR `0x16/0x5a000000`).
+     - 137 PSCI HVC calls were recorded in `qemu_trace.log` (`handled as PSCI call`).
+     - **Crucial Observation**: The kernel issues `0x84000009` (PSCI System Reset / Suspend Mode), but **never invokes `PSCI_CPU_ON` (`0x84000003` / `0xC4000003`)**. The kernel halts its secondary CPU bring-up sequence prior to reaching the `PSCI_CPU_ON` call.
+
+  2. **Q2: Does CPU1's PC ever change from `0x0`?**
+     - **No.** Continuous vCPU register sampling confirmed CPU1 remains at `PC = 0x0000000000000000` with `PSTATE = 0x400003c5` (EL1h reset vector) throughout the entire session. CPU1 never leaves reset for even a single instruction cycle.
+
+  3. **Q3: Does QEMU record/write the secondary CPU entry address (`entry_pa`)?**
+     - **No.** Because `PSCI_CPU_ON` is never issued by the kernel, QEMU's secondary CPU holding pen vector is never populated.
+
+- **Empirical Bring-up Timeline**:
+
+```text
+Kernel Boot (CPU0)                 [SUCCESS — Executing in Virtual Space]
+      ↓
+SCM Availability Check (0xC2000601) [SUCCESS — Emulated X0=1]
+      ↓
+SCM v1 Resume Call (0x00000001)    [SUCCESS — Emulated X0=0]
+      ↓
+SCM Warm-Boot Setup (0x42000A01)  [SUCCESS — Emulated entry=0x429d0000]
+      ↓
+Kernel PSCI Query (0x84000009)     [EXCEPT — Handled as PSCI HVC]
+      ↓
+[HALT / RETRY LOOP]                [FAIL — PSCI_CPU_ON is NEVER reached]
+```
+
+### Architectural Divergence Point
+
+The exact divergence point in the secondary CPU bring-up timeline is identified:
+- The kernel successfully completes firmware initialization (SCM calls `0xC2000601` $\rightarrow$ `0x00000001` $\rightarrow$ `0x42000A01`).
+- The kernel attempts PSCI capability query `0x84000009`.
+- The kernel **never reaches `PSCI_CPU_ON`**, looping back to SCM availability queries instead.
+
+
 
 
 

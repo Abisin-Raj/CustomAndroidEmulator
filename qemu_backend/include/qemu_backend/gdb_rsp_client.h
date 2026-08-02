@@ -37,6 +37,10 @@ public:
     // Release guest from initial -S pause, or resume after a breakpoint.
     bool sendContinue();
 
+    // Single-step the guest by one instruction ('s' packet).
+    bool sendStep();
+
+
     // Pause a running guest (CTRL-C interrupt, 0x03 byte).
     bool sendInterrupt();
 

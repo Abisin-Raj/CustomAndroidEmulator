@@ -58,6 +58,14 @@ bool GdbRspClient::sendContinue() {
     return sendPacket("c");
 }
 
+bool GdbRspClient::sendStep() {
+    if (!sendPacket("s")) return false;
+    // Wait for the single-step stop reply T05...
+    QString reply = waitForStop(1000);
+    return !reply.isEmpty();
+}
+
+
 bool GdbRspClient::sendInterrupt() {
     if (!m_connected) return false;
     // Raw 0x03 byte (not a packet, just a byte interrupt)

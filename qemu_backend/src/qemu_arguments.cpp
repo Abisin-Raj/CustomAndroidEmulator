@@ -38,8 +38,9 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
     // NOTE: -d unimp only captures what QEMU considers "unimplemented". If the
     // target range is mapped as silent RAM, use GDB Z2 watchpoints as fallback.
     if (params.enableMmioTrace) {
-        args << "-d" << "unimp,guest_errors" << "-D" << "qemu_trace.log";
+        args << "-d" << "int,unimp,guest_errors" << "-D" << "qemu_trace.log";
     }
+
 
     // DTB dump: QEMU writes its generated DTB to disk and exits.
     // Decompile with: dtc -I dtb -O dts qemu_generated.dtb

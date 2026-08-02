@@ -45,7 +45,9 @@ std::vector<uint64_t> SmcInterceptorWorker::findSmcInstructions(
     std::vector<uint64_t> addrs;
     constexpr uint8_t smc_bytes[4] = { 0x03, 0x00, 0x00, 0xD4 };
 
-    spdlog::info("[SMC] Scanning 0x{:016x} + {} bytes for smc opcodes in chunks...",
+    constexpr uint8_t hvc_bytes[4] = { 0x02, 0x00, 0x00, 0xD4 };
+
+    spdlog::info("[SMC] Scanning 0x{:016x} + {} bytes for smc/hvc opcodes in chunks...",
         startAddr, scanBytes);
 
     constexpr int chunkSize = 16384; // 16KB chunks to avoid RSP buffer limits
@@ -58,20 +60,25 @@ std::vector<uint64_t> SmcInterceptorWorker::findSmcInstructions(
         }
 
         for (int i = 0; i + 3 < static_cast<int>(mem.size()); i += 4) {
-            if (mem[i]   == smc_bytes[0] && mem[i+1] == smc_bytes[1] &&
-                mem[i+2] == smc_bytes[2] && mem[i+3] == smc_bytes[3]) {
+            bool isSmc = (mem[i]   == smc_bytes[0] && mem[i+1] == smc_bytes[1] &&
+                          mem[i+2] == smc_bytes[2] && mem[i+3] == smc_bytes[3]);
+            bool isHvc = (mem[i]   == hvc_bytes[0] && mem[i+1] == hvc_bytes[1] &&
+                          mem[i+2] == hvc_bytes[2] && mem[i+3] == hvc_bytes[3]);
+
+            if (isSmc || isHvc) {
                 uint64_t addr = currentAddr + static_cast<uint64_t>(i);
-                spdlog::info("[SMC] Found smc instruction at 0x{:016x}", addr);
+                spdlog::info("[SMC] Found {} instruction at 0x{:016x}", isSmc ? "smc" : "hvc", addr);
                 addrs.push_back(addr);
             }
         }
     }
 
     if (addrs.empty()) {
-        spdlog::warn("[SMC] No smc opcodes found in {} bytes from 0x{:016x}", scanBytes, startAddr);
+        spdlog::warn("[SMC] No smc/hvc opcodes found in {} bytes from 0x{:016x}", scanBytes, startAddr);
     } else {
-        spdlog::info("[SMC] Scan complete. Found {} smc instructions.", addrs.size());
+        spdlog::info("[SMC] Scan complete. Found {} smc/hvc instructions.", addrs.size());
     }
+
     return addrs;
 }
 
@@ -416,75 +423,73 @@ void SmcInterceptorWorker::run() {
         // This is the most robust path — it survives even if QEMU's
         // hardware-breakpoint register-write model has edge cases.
         // ---------------------------------------------------------------
-        if (sp != 0) {
-            auto spMem = gdb.readMemory(sp, 8);
-            if (spMem.size() == 8) {
-                // Reconstruct the smc_res pointer (little-endian u64 at SP)
-                uint64_t smcResPtr = 0;
-                for (int i = 7; i >= 0; --i)
-                    smcResPtr = (smcResPtr << 8) | spMem[i];
+        if (result.handled) {
+            // Apply memory result patch if SP or X19 holds the smc_res pointer
+            if (sp != 0) {
+                auto spMem = gdb.readMemory(sp, 8);
+                if (spMem.size() == 8) {
+                    uint64_t smcResPtr = 0;
+                    for (int i = 7; i >= 0; --i)
+                        smcResPtr = (smcResPtr << 8) | spMem[i];
 
-                if (smcResPtr != 0 && smcResPtr >= 0xffffff8000000000ULL) {
-                    // Build the 32-byte arm_smccc_res payload: a0, a1, a2, a3
-                    auto encU64Le = [](uint64_t v) -> std::vector<uint8_t> {
-                        std::vector<uint8_t> b(8);
-                        for (int i = 0; i < 8; ++i) { b[i] = v & 0xFF; v >>= 8; }
-                        return b;
-                    };
-                    std::vector<uint8_t> payload;
-                    auto a0 = encU64Le(result.x0); payload.insert(payload.end(), a0.begin(), a0.end());
-                    auto a1 = encU64Le(result.x1); payload.insert(payload.end(), a1.begin(), a1.end());
-                    auto a2 = encU64Le(result.x2); payload.insert(payload.end(), a2.begin(), a2.end());
-                    auto a3 = encU64Le(result.x3); payload.insert(payload.end(), a3.begin(), a3.end());
+                    if (smcResPtr != 0 && smcResPtr >= 0xffffff8000000000ULL) {
+                        auto encU64Le = [](uint64_t v) -> std::vector<uint8_t> {
+                            std::vector<uint8_t> b(8);
+                            for (int i = 0; i < 8; ++i) { b[i] = v & 0xFF; v >>= 8; }
+                            return b;
+                        };
+                        std::vector<uint8_t> payload;
+                        auto a0 = encU64Le(result.x0); payload.insert(payload.end(), a0.begin(), a0.end());
+                        auto a1 = encU64Le(result.x1); payload.insert(payload.end(), a1.begin(), a1.end());
+                        auto a2 = encU64Le(result.x2); payload.insert(payload.end(), a2.begin(), a2.end());
+                        auto a3 = encU64Le(result.x3); payload.insert(payload.end(), a3.begin(), a3.end());
 
-                    bool patched = gdb.writeMemory(smcResPtr, payload);
-                    spdlog::info("[SMC] Direct smc_res patch → 0x{:016x}: a0=0x{:x} a1=0x{:x} [{}]",
-                        smcResPtr, result.x0, result.x1, patched ? "OK" : "FAILED");
-                } else {
-                    spdlog::warn("[SMC] SP[0]=0x{:016x} — not a kernel VA; skipping direct patch",
-                        smcResPtr);
+                        bool patched = gdb.writeMemory(smcResPtr, payload);
+                        spdlog::info("[SMC] Direct smc_res patch → 0x{:016x}: a0=0x{:x} a1=0x{:x} [{}]",
+                            smcResPtr, result.x0, result.x1, patched ? "OK" : "FAILED");
+                    }
                 }
             }
+
+            if (x19 >= 0xffffff8000000000ULL) {
+                auto encU64Le = [](uint64_t v) -> std::vector<uint8_t> {
+                    std::vector<uint8_t> b(8);
+                    for (int i = 0; i < 8; ++i) { b[i] = v & 0xFF; v >>= 8; }
+                    return b;
+                };
+                std::vector<uint8_t> payload;
+                auto a0 = encU64Le(result.x0); payload.insert(payload.end(), a0.begin(), a0.end());
+                auto a1 = encU64Le(result.x1); payload.insert(payload.end(), a1.begin(), a1.end());
+                auto a2 = encU64Le(result.x2); payload.insert(payload.end(), a2.begin(), a2.end());
+                auto a3 = encU64Le(result.x3); payload.insert(payload.end(), a3.begin(), a3.end());
+
+                uint64_t patchAddr = x19;
+                bool patched = gdb.writeMemory(patchAddr, payload);
+                spdlog::info("[SMC] Direct x19 result patch → 0x{:016x}: status=0x{:x} a0=0x{:x} a1=0x{:x} [{}]",
+                    patchAddr, result.x0, result.x1, result.x2, patched ? "OK" : "FAILED");
+            }
+
+            // Write register return values
+            gdb.writeRegister(GdbRspClient::REG_X0,     result.x0);
+            gdb.writeRegister(GdbRspClient::REG_X0 + 1, result.x1);
+            gdb.writeRegister(GdbRspClient::REG_X0 + 2, result.x2);
+            gdb.writeRegister(GdbRspClient::REG_X0 + 3, result.x3);
+
+            // --- Advance PC past the 4-byte smc/hvc instruction ---
+            gdb.writeRegister(GdbRspClient::REG_PC, pc + 4);
+
+            spdlog::info("[SMC] Emulated: {} → X0=0x{:x} handled={} PC now=0x{:016x}",
+                req.id.toString(), result.x0, result.handled, pc + 4);
+        } else {
+            spdlog::info("[SMC] Passthrough: {} (Unhandled) → stepping natively for QEMU processing",
+                req.id.toString());
+            // Temporarily remove breakpoint, single-step the instruction natively via QEMU, then re-arm
+            gdb.removeBreakpoint(pc);
+            gdb.sendStep();
+            gdb.insertBreakpoint(pc);
         }
 
-        // Direct guest-memory patch via register X19 (if X19 holds the res pointer)
-        // Layout of struct qcom_scm_res / arm_smccc_res at x19:
-        //   offset  0 (x19 + 0):  status / a0 → X0 return value
-        //   offset  8 (x19 + 8):  a0           → X1 return value
-        //   offset 16 (x19 + 16): a1           → X2 return value
-        //   offset 24 (x19 + 24): a2           → X3 return value
-        if (x19 >= 0xffffff8000000000ULL) {
-            auto encU64Le = [](uint64_t v) -> std::vector<uint8_t> {
-                std::vector<uint8_t> b(8);
-                for (int i = 0; i < 8; ++i) { b[i] = v & 0xFF; v >>= 8; }
-                return b;
-            };
-            std::vector<uint8_t> payload;
-            auto a0 = encU64Le(result.x0); payload.insert(payload.end(), a0.begin(), a0.end());
-            auto a1 = encU64Le(result.x1); payload.insert(payload.end(), a1.begin(), a1.end());
-            auto a2 = encU64Le(result.x2); payload.insert(payload.end(), a2.begin(), a2.end());
-            auto a3 = encU64Le(result.x3); payload.insert(payload.end(), a3.begin(), a3.end());
 
-            uint64_t patchAddr = x19; // struct begins at x19 (status at offset 0)
-            bool patched = gdb.writeMemory(patchAddr, payload);
-            spdlog::info("[SMC] Direct x19 result patch → 0x{:016x}: status=0x{:x} a0=0x{:x} a1=0x{:x} [{}]",
-                patchAddr, result.x0, result.x1, result.x2, patched ? "OK" : "FAILED");
-        }
-
-        // --- Verify written registers ---
-        uint64_t verify_x0 = 0, verify_x1 = 0, verify_x2 = 0, verify_x3 = 0;
-        gdb.readRegister(GdbRspClient::REG_X0,     verify_x0);
-        gdb.readRegister(GdbRspClient::REG_X0 + 1, verify_x1);
-        gdb.readRegister(GdbRspClient::REG_X0 + 2, verify_x2);
-        gdb.readRegister(GdbRspClient::REG_X0 + 3, verify_x3);
-        spdlog::info("[SMC] Register verification: X0=0x{:x}, X1=0x{:x}, X2=0x{:x}, X3=0x{:x}",
-            verify_x0, verify_x1, verify_x2, verify_x3);
-
-        // --- Advance PC past the 4-byte smc instruction ---
-        gdb.writeRegister(GdbRspClient::REG_PC, pc + 4);
-
-        spdlog::info("[SMC] Emulated: {} → X0=0x{:x} handled={} PC now=0x{:016x}",
-            req.id.toString(), result.x0, result.handled, pc + 4);
 
         emit smcIntercepted(
             static_cast<quint64>(x0),
