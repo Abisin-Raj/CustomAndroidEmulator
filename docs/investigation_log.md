@@ -212,7 +212,7 @@ Investigate QEMU vCPU topology configuration parameters (`-smp 8,sockets=1,clust
   1. **Q1: Does QEMU receive PSCI calls from the guest?**
      - **Yes.** QEMU exception trace (`-d int,unimp,guest_errors`) confirmed the guest kernel issues PSCI calls via **HVC** (`hvc #0`, Exception 11 from EL1 to EL2 with ESR `0x16/0x5a000000`).
      - 137 PSCI HVC calls were recorded in `qemu_trace.log` (`handled as PSCI call`).
-     - **Crucial Observation**: The kernel issues `0x84000009` (PSCI System Reset / Suspend Mode), but **never invokes `PSCI_CPU_ON` (`0x84000003` / `0xC4000003`)**. The kernel halts its secondary CPU bring-up sequence prior to reaching the `PSCI_CPU_ON` call.
+     - **Crucial Observation**: The kernel issues HVC call `0x84000009`, but **never invokes `PSCI_CPU_ON` (`0x84000003` / `0xC4000003`)**. The kernel halts its secondary CPU bring-up sequence prior to reaching the `PSCI_CPU_ON` call.
 
   2. **Q2: Does CPU1's PC ever change from `0x0`?**
      - **No.** Continuous vCPU register sampling confirmed CPU1 remains at `PC = 0x0000000000000000` with `PSTATE = 0x400003c5` (EL1h reset vector) throughout the entire session. CPU1 never leaves reset for even a single instruction cycle.
@@ -231,17 +231,25 @@ SCM v1 Resume Call (0x00000001)    [SUCCESS — Emulated X0=0]
       ↓
 SCM Warm-Boot Setup (0x42000A01)  [SUCCESS — Emulated entry=0x429d0000]
       ↓
-Kernel PSCI Query (0x84000009)     [EXCEPT — Handled as PSCI HVC]
+Kernel HVC Call (0x84000009)       [EXCEPT — Handled as PSCI HVC]
       ↓
 [HALT / RETRY LOOP]                [FAIL — PSCI_CPU_ON is NEVER reached]
 ```
 
-### Architectural Divergence Point
+### Phase 6.7C — Source Correlation Plan
 
-The exact divergence point in the secondary CPU bring-up timeline is identified:
-- The kernel successfully completes firmware initialization (SCM calls `0xC2000601` $\rightarrow$ `0x00000001` $\rightarrow$ `0x42000A01`).
-- The kernel attempts PSCI capability query `0x84000009`.
-- The kernel **never reaches `PSCI_CPU_ON`**, looping back to SCM availability queries instead.
+**Goal**: Correlate the disassembly around `0xffffff80091840b0–0xffffff8009184100` with kernel source to determine the exact function, semantic purpose of HVC `0x84000009`, and the true meaning of the `cmp x8, x9` branch.
+
+#### Verification Steps for Phase 6.7C
+
+1. **Empirical Register Capture**: Log exact register values before and after HVC call `0x84000009` (X0 before; X0, X1, X2, X3 after).
+2. **Surrounding Function Identification**: Disassemble function prologue preceding `0xffffff80091840d8` to locate stack allocation (`sub sp, sp, #N`) and frame pointer setup (`stp x29, x30, [sp, #N]`), determining exact function boundaries.
+3. **Instruction-to-Source Mapping**:
+   - Trace 256 bytes before `LR` and 256 bytes after `LR`.
+   - Map `adrp x8` + `ldr x8` to the exact kernel data structure/table.
+   - Identify what `x8` and `x9` represent, and why `cmp x8, x9` determines the branch outcome.
+
+
 
 
 

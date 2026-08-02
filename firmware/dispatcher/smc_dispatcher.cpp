@@ -84,6 +84,7 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
         return res;
     }
 
+
     // Walk registered services and find a matching (owner, service) pair
     for (auto& svc : m_services) {
         if (svc->owner()   == req.id.owner()   &&

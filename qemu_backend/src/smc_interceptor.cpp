@@ -283,6 +283,9 @@ void SmcInterceptorWorker::run() {
         spdlog::info("[SMC] Intercepted {} at PC=0x{:016x} LR=0x{:016x} SP=0x{:016x} X19=0x{:016x}: "
                      "X1=0x{:x}, X2=0x{:x}, X3=0x{:x}",
             req.id.toString(), pc, lr, sp, x19, x1, x2, x3);
+        spdlog::info("[SMC]   Symbol PC: {} | Symbol LR: {}",
+            m_resolver.resolveAddress(pc), m_resolver.resolveAddress(lr));
+
 
 
 
@@ -321,7 +324,9 @@ void SmcInterceptorWorker::run() {
 
             // Also disassemble the caller's instructions around LR (LR-64 to LR+192)
             if (lr >= 0xffffff8000000000ULL) {
-                spdlog::info("[SMC] === Caller instruction stream around LR=0x{:016x} ===", lr);
+                std::string callerSym = m_resolver.resolveAddress(lr);
+                spdlog::info("[SMC] === Caller instruction stream around LR=0x{:016x} [{}] ===", lr, callerSym);
+
                 uint64_t lrBase = lr - 64;
                 auto lrInsns = gdb.readMemory(lrBase, 256);
                 if (!lrInsns.empty()) {
