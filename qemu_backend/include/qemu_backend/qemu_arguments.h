@@ -9,6 +9,7 @@ struct QemuConfigParameters {
     std::string memory = "1024M";
     std::string kernelPath;
     std::string ramdiskPath;
+    std::string dtbPath;
     std::string cmdline;
     std::string extraArgs;
     bool nographic      = true;

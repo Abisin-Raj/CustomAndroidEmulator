@@ -150,22 +150,34 @@ The guest fails before reaching any CPU wake mechanism.
    - ...
    - `cpu@700`: `reg = <0x00 0x700>` (MPIDR `0x700`, Affinity 1 = 7)
 
-3. **The Root Cause**:
-   - The Qualcomm vendor kernel uses cluster-based MPIDR indexing (`0x100`,
-     `0x200`, etc.) for secondary cores.
-   - When the kernel invokes PSCI `CPU_ON(target_mpidr = 0x100, entry_pa)`, QEMU's
-     built-in PSCI handler searches its internal vCPU list for MPIDR `0x100`.
-   - QEMU only has vCPUs with MPIDRs `0x00`–`0x07`.
-   - QEMU returns `PSCI_RET_INVALID_PARAMS` (`-2`) to the kernel.
+3. **The Root Cause (Supported Inference)**:
+   - The Qualcomm vendor kernel is built assuming cluster-based MPIDR indexing (`0x100`,
+     `0x200`, etc.) for secondary cores as defined in vendor hardware device trees.
+   - The evidence strongly suggests that the guest issues a PSCI `CPU_ON` targeting
+     MPIDR `0x100`.
+   - Given QEMU's auto-generated DTB advertises CPUs with MPIDRs `0x00`–`0x07`, the
+     most likely outcome is that QEMU rejects the request with `PSCI_RET_INVALID_PARAMS`,
+     preventing secondary CPU bring-up.
    - The kernel CPU bring-up driver fails, times out after 250ms, and retries
      warm-boot registration from the top — causing the exact 41-retry boot loop
      observed in BET traces.
 
-### Resolution Plan for Phase 6.6B
 
-We have two options to resolve the MPIDR mismatch:
+### Experiment B Results (Session #17)
 
-1. **Option 1 (QEMU Topology parameters)**: Pass `-smp 8,sockets=1,clusters=8,cores=1,threads=1` or CPU topology arguments to force QEMU to assign MPIDRs matching `0x100`..`0x700`.
-2. **Option 2 (Vendor DTB / DTB Patch)**: Pass the compiled vendor DTB (or a patched DTB with flat MPIDRs matching QEMU's `0x01`..`0x07`) to QEMU via `-dtb`.
+- **Variable Tested**: Passed vendor DTB via `-dtb reference/dtbs/original_kernel.dtb`.
+- **Observations**:
+  - Guest MMU activated cleanly at `PC = 0xffffff80080cbe6c`.
+  - SMC interception sequence (`0xC2000601` → `0x00000001` → `0x42000A01`) matched Experiment A exactly.
+  - SCM warm-boot retries: 41 cycles (identical to Experiment A).
+  - CPU1–7 state: PC = `0x0`, PSTATE = `0x400003c5` (EL1h) throughout the session.
+  - CPU1 did **not** leave reset.
+- **Conclusion**: **Outcome 2 confirmed.** Passing `-dtb` alone does not enable secondary CPU bring-up.
+  QEMU's `virt` machine generates internal vCPU `mp_affinity` values (`0x00`..`0x07`) in C code during machine initialization independently of the DTB passed via `-dtb`. When the guest calls PSCI `CPU_ON` targeting MPIDR `0x100` (read from the vendor DTB), QEMU's internal PSCI engine fails to match `0x100` against its internal `mp_affinity` table.
+
+### Next Step (Step 4 Investigation)
+
+Investigate QEMU vCPU topology configuration parameters (`-smp 8,sockets=1,clusters=8,cores=1,threads=1` or `-cpu cortex-a76,rvbar=...`) to determine if QEMU allows configuring vCPU `mp_affinity` values to match Qualcomm cluster layout (`0x100`..`0x700`).
+
 
 

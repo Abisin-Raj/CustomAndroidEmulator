@@ -20,6 +20,11 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
         args << "-initrd" << QString::fromStdString(params.ramdiskPath);
     }
 
+    if (!params.dtbPath.empty()) {
+        args << "-dtb" << QString::fromStdString(params.dtbPath);
+    }
+
+
     // Redirect serial logs to stdio, and tell guest kernel to output to the virt serial controller
     if (!params.cmdline.empty()) {
         args << "-append" << QString::fromStdString(params.cmdline);
