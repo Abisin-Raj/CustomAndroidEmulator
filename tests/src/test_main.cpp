@@ -930,7 +930,7 @@ int main(int argc, char* argv[]) {
         firmware::SmcResult result = dispatcher.dispatch(
             0xC2000111ULL,   // x0 = SMC ID (Service=1, Cmd=0x11)
             1ULL,            // x1 = arginfo
-            warmBootAddr,    // Test runner entry point — Phase 6.6D MPIDR translation run 2026-08-03T01:14
+            warmBootAddr,    // Test runner entry point — CPU Bringup Trace 2026-08-03T01:21
             ~0ULL,           // x3
             ~0ULL,           // x4
             ~0ULL,           // x5

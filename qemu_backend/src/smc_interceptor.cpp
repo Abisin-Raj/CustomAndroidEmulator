@@ -504,6 +504,9 @@ void SmcInterceptorWorker::run() {
 
         // --- Resume guest ---
         gdb.sendContinue();
+
+
+
     }
 
 

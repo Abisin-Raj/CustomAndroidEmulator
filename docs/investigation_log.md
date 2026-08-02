@@ -189,15 +189,22 @@ Investigate QEMU vCPU topology configuration parameters (`-smp 8,sockets=1,clust
   - CPU1–7 state: PC = `0x0`, PSTATE = `0x400003c5` (EL1h) throughout the session.
   - CPU1 did **not** leave reset.
 
-- **Empirical Conclusion**:
-  - Patching DTB CPU `reg` entries to flat MPIDRs (`0x00`..`0x07`) is **insufficient** on its own to trigger secondary CPU bring-up.
-  - This proves that the Qualcomm vendor kernel does not rely solely on DTB `reg` properties to determine target MPIDRs for CPU hotplug.
-  - The vendor kernel's CPU bring-up driver (`qcom_boot_secondary` / `smp_ops`) either hardcodes MPIDRs (`0x100`, `0x200`...) in C code or requires platform GICR / power-domain hardware components to be present.
+### CPU Topology & Bring-Up Source Trace
 
-### Compatibility Layer Architecture
+- **Kernel CPU Bring-Up Call Chain (Linux ARM64 / Qualcomm Vendor Kernel)**:
+  1. **Early DTB Parsing (`arch/arm64/kernel/setup.c`)**:
+     During early boot, the kernel populates `cpu_logical_map(cpu)` (indexed by logical CPU 0..7) by reading the `reg` property of each DTB node under `/cpus/cpu@...`.
+     - In vendor DTS (`original_kernel.dts`): `cpu_logical_map(1) = 0x100`.
+     - In patched DTS (`patched_kernel.dts`): `cpu_logical_map(1) = 0x01`.
+  2. **Secondary CPU Boot Invocation (`arch/arm64/kernel/psci.c`)**:
+     When the kernel brings up CPU1, `cpu_psci_cpu_boot(1)` retrieves `mpidr = cpu_logical_map(1)` and passes it to `psci_ops.cpu_on(mpidr, entry_pa)`.
+  3. **Vendor Machine Hardware Prerequisites**:
+     In Qualcomm vendor kernels (SM6150), `smp_ops` includes Qualcomm platform bring-up steps (`qcom_boot_secondary` / KPSS / APCS power domain controls) prior to or alongside PSCI `CPU_ON`.
 
-As established by our controlled experiments:
-1. SCM Firmware Layer $\rightarrow$ Handled (`0xC2000601`, `0x00000001`, `0x42000A01`).
-2. DTB MPIDR Layer $\rightarrow$ Validated (DTB patch alone does not resolve bring-up).
-3. Machine Hardware / Topology Layer $\rightarrow$ Next objective: MPIDR translation / GICR alignment layer within the emulator architecture.
+- **Architectural Findings**:
+  - The target MPIDR passed to PSCI `CPU_ON` is derived directly from `cpu_logical_map(cpu)` (which comes from DTB `reg`).
+  - When `patched_kernel.dtb` was provided (setting `cpu_logical_map(1) = 0x01`), the MPIDR matched QEMU's vCPU #1 assignment (`0x01`).
+  - The fact that CPU1 remained in reset even with matching MPIDR (`0x01`) confirms that secondary CPU bring-up requires platform machine hardware alignment (GIC Redistributor topology and/or platform power control registers) rather than MPIDR matching alone.
+
+
 
