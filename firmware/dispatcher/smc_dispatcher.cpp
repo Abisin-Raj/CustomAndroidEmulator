@@ -43,6 +43,23 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
 
     spdlog::debug("[SCM] Received {}", req.id.toString());
 
+    // Handle the special SCM v1 resume call (0x00000001)
+    if (req.id.raw == 0x00000001ULL) {
+        if (x2 == 0x82000601ULL || x2 == 0xC2000601ULL) {
+            spdlog::info("[SCM] Handling SCM v1 resume (0x00000001) for availability query 0x{:08x}", x2);
+            SmcResult res;
+            res.x0 = SMCCC_RET_SUCCESS; // 0 (success)
+            res.x1 = 1;                 // 1 (available)
+            res.x2 = x2;                // Preserve target command
+            res.x3 = x3;                // Preserve original X3
+            res.handled = true;
+            return res;
+        } else {
+            spdlog::warn("[SCM] Unhandled target command 0x{:08x} on resume call (0x00000001)", x2);
+            return { SMCCC_RET_NOT_SUPPORTED, x1, x2, x3, false };
+        }
+    }
+
     // Walk registered services and find a matching (owner, service) pair
     for (auto& svc : m_services) {
         if (svc->owner()   == req.id.owner()   &&

@@ -221,7 +221,7 @@ void SmcInterceptorWorker::run() {
             firstHit = false;
             spdlog::info("[SMC] === First hit — inspecting function instruction stream ===");
             uint64_t funcBase = pc - 12;
-            auto postInsns = gdb.readMemory(funcBase, 256);
+            auto postInsns = gdb.readMemory(funcBase, 512);
             if (!postInsns.empty()) {
                 // Log raw bytes in groups of 4 (one AArch64 instruction each)
                 for (int i = 0; i + 3 < static_cast<int>(postInsns.size()); i += 4) {
@@ -242,11 +242,11 @@ void SmcInterceptorWorker::run() {
                 spdlog::warn("[SMC]   Memory read failed at function base — guest may not be in virtual space?");
             }
 
-            // Also disassemble the caller's instructions around LR (LR-64 to LR+64)
+            // Also disassemble the caller's instructions around LR (LR-64 to LR+192)
             if (lr >= 0xffffff8000000000ULL) {
                 spdlog::info("[SMC] === Caller instruction stream around LR=0x{:016x} ===", lr);
                 uint64_t lrBase = lr - 64;
-                auto lrInsns = gdb.readMemory(lrBase, 128);
+                auto lrInsns = gdb.readMemory(lrBase, 256);
                 if (!lrInsns.empty()) {
                     for (int i = 0; i + 3 < static_cast<int>(lrInsns.size()); i += 4) {
                         uint32_t insn = static_cast<uint32_t>(lrInsns[i])
