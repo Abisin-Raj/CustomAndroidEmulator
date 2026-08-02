@@ -183,9 +183,12 @@ void SmcInterceptorWorker::run() {
         }
         // Restore to default thread so the main loop starts cleanly
         if (!threads.isEmpty()) gdb.selectThread(threads.first());
+    }
+
     // --- 3c. Phase 6.6C — Topology validation complete ---
     // Confirmed: QEMU virt machine assigns flat MPIDRs (0x00..0x07) to vCPUs 0..7.
     gdb.sendContinue();
+
 
 
     // --- 4. Main interception loop ---
