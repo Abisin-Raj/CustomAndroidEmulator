@@ -179,5 +179,25 @@ The guest fails before reaching any CPU wake mechanism.
 
 Investigate QEMU vCPU topology configuration parameters (`-smp 8,sockets=1,clusters=8,cores=1,threads=1` or `-cpu cortex-a76,rvbar=...`) to determine if QEMU allows configuring vCPU `mp_affinity` values to match Qualcomm cluster layout (`0x100`..`0x700`).
 
+### Phase 6.6C — MPIDR Validation & QEMU Topology Analysis (Session #18–#20)
 
+- **Questions Investigated**:
+  1. What MPIDRs does QEMU's `virt` machine assign to vCPUs 0..7 at runtime?
+  2. Does QEMU's `virt` machine support configuring cluster-based MPIDRs (`0x100`..`0x700`) via topology parameters like `-smp 8,clusters=8?
 
+- **Empirical Findings**:
+  - **Runtime MPIDR Assignment**: QEMU's `virt` machine hardcodes a flat 1D MPIDR formula (`arm_cpu_mp_affinity`) in its C implementation (`hw/arm/virt.c`):
+    - vCPU #0: MPIDR `0x000` (`Aff0 = 0x00`)
+    - vCPU #1: MPIDR `0x001` (`Aff0 = 0x01`)
+    - vCPU #2: MPIDR `0x002` (`Aff0 = 0x02`)
+    - ...
+    - vCPU #7: MPIDR `0x007` (`Aff0 = 0x07`)
+  - **`-smp` Topology Behavior**: Passing `-smp 8,sockets=1,clusters=8,cores=1,threads=1` to `qemu-system-aarch64 -M virt` was accepted by QEMU, but the generated Device Tree and internal vCPU `mp_affinity` array **remained flat (`0x00`..`0x07`)**.
+  - **Conclusion for Step 4**: QEMU's generic `virt` machine board ignores cluster topology for MPIDR calculation. Standard `virt` cannot produce Qualcomm cluster-style MPIDRs (`0x100`..`0x700`) via command-line arguments alone.
+
+### Next Architecture Options
+
+Since generic QEMU `virt` cannot generate cluster-indexed MPIDRs out-of-the-box, three options exist:
+1. **Option A (Targeted QEMU / Plugin Patch)**: Intercept PSCI calls or patch QEMU's `arm_cpu_mp_affinity` / PSCI target matching to map `0x100` $\rightarrow$ CPU #1 (0x01), `0x200` $\rightarrow$ CPU #2 (0x02), etc.
+2. **Option B (Vendor DTB Patch)**: Patch the vendor DTB CPU nodes (`cpu@100`, `cpu@200`...) to change `reg = <0x00 0x100>` to `reg = <0x00 0x01>`, matching QEMU's `virt` board MPIDRs, so the guest kernel issues PSCI `CPU_ON(0x01)`.
+3. **Option C (Custom Machine Board)**: Add a custom QEMU machine model in C that models the Qualcomm SM6150 cluster MPIDR layout natively.
