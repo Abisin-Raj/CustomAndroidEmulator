@@ -242,6 +242,23 @@ void SmcInterceptorWorker::run() {
                 spdlog::warn("[SMC]   Memory read failed at function base — guest may not be in virtual space?");
             }
 
+            // Also disassemble the caller's instructions around LR (LR-64 to LR+64)
+            if (lr >= 0xffffff8000000000ULL) {
+                spdlog::info("[SMC] === Caller instruction stream around LR=0x{:016x} ===", lr);
+                uint64_t lrBase = lr - 64;
+                auto lrInsns = gdb.readMemory(lrBase, 128);
+                if (!lrInsns.empty()) {
+                    for (int i = 0; i + 3 < static_cast<int>(lrInsns.size()); i += 4) {
+                        uint32_t insn = static_cast<uint32_t>(lrInsns[i])
+                                      | (static_cast<uint32_t>(lrInsns[i+1]) << 8)
+                                      | (static_cast<uint32_t>(lrInsns[i+2]) << 16)
+                                      | (static_cast<uint32_t>(lrInsns[i+3]) << 24);
+                        spdlog::info("[SMC]   LR{:+d} 0x{:016x}: 0x{:08x}",
+                            i - 64, lrBase + i, insn);
+                    }
+                }
+            }
+
             // Also log the stack top (first 3 quad-words) to see the smc_res pointer
             if (sp != 0) {
                 auto stackTop = gdb.readMemory(sp, 24);
@@ -254,27 +271,6 @@ void SmcInterceptorWorker::run() {
                         for (int i = 23; i >= 16; --i) ptr2 = (ptr2 << 8) | stackTop[i];
                     spdlog::info("[SMC]   SP[0]=0x{:016x}  SP[8]=0x{:016x}  SP[16]=0x{:016x}",
                         ptr0, ptr1, ptr2);
-                }
-            }
-
-            // Dump caller code at LR
-            if (lr >= 0xffffff8000000000ULL) {
-                spdlog::info("[SMC] === Inspecting caller instruction stream at LR=0x{:016x} ===", lr);
-                uint64_t callerBase = lr - 32; // Dump a bit before LR as well
-                auto callerInsns = gdb.readMemory(callerBase, 128);
-                if (!callerInsns.empty()) {
-                    for (int i = 0; i + 3 < static_cast<int>(callerInsns.size()); i += 4) {
-                        uint32_t insn = static_cast<uint32_t>(callerInsns[i])
-                                      | (static_cast<uint32_t>(callerInsns[i+1]) << 8)
-                                      | (static_cast<uint32_t>(callerInsns[i+2]) << 16)
-                                      | (static_cast<uint32_t>(callerInsns[i+3]) << 24);
-                        spdlog::info("[SMC]   0x{:016x}: 0x{:08x} (LR{:s}{:02x})",
-                            callerBase + i, insn,
-                            (callerBase + i == lr) ? " -> " : "    ",
-                            i - 32);
-                    }
-                } else {
-                    spdlog::warn("[SMC]   Memory read failed at caller base.");
                 }
             }
             spdlog::info("[SMC] ============================================================");
