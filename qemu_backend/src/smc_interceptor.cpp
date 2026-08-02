@@ -276,6 +276,29 @@ void SmcInterceptorWorker::run() {
             spdlog::info("[SMC] ============================================================");
         }
 
+        // --- Special Logging for SCM Resume Call (0x00000001) ---
+        if ((x0 & 0xFFFFFFFFULL) == 0x00000001ULL) {
+            spdlog::info("[SMC] === SCM Resume Call Intercepted (0x00000001) ===");
+            spdlog::info("[SMC]   X0=0x{:016x} X1=0x{:016x} X2=0x{:016x} X3=0x{:016x}", x0, x1, x2, x3);
+            spdlog::info("[SMC]   X4=0x{:016x} X5=0x{:016x} X6=0x{:016x}", x4, x5, x6);
+            
+            // Check if X2 points to a valid kernel virtual address
+            if (x2 >= 0xffffff8000000000ULL) {
+                auto x2Mem = gdb.readMemory(x2, 32);
+                if (!x2Mem.empty()) {
+                    std::string hexDump;
+                    for (size_t i = 0; i < x2Mem.size(); ++i) {
+                        hexDump += fmt::format("{:02x} ", x2Mem[i]);
+                        if ((i + 1) % 8 == 0) hexDump += " ";
+                    }
+                    spdlog::info("[SMC]   [X2] memory dump: {}", hexDump);
+                } else {
+                    spdlog::warn("[SMC]   [X2] memory read failed (invalid/unmapped address)");
+                }
+            }
+            spdlog::info("[SMC] ===============================================");
+        }
+
         // --- Dispatch through firmware compatibility layer ---
         firmware::SmcResult result = m_dispatcher.dispatch(x0, x1, x2, x3, x4, x5, x6);
 
