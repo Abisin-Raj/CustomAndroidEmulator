@@ -185,6 +185,18 @@ void SmcInterceptorWorker::run() {
         if (!threads.isEmpty()) gdb.selectThread(threads.first());
     }
 
+    // --- 3c. Log QEMU CPU topology via monitor 'info cpus' ---
+    // This reveals the MPIDR (Aff0/Aff1/Aff2/Aff3) QEMU assigns to each vCPU.
+    // Compare these against vendor DTS 'reg' values to check for MPIDR mismatch.
+    {
+        QString cpuInfo = gdb.sendMonitorCommand("info cpus");
+        if (!cpuInfo.isEmpty()) {
+            spdlog::info("[SMC] QEMU CPU topology (info cpus):\n{}", cpuInfo.toStdString());
+        } else {
+            spdlog::warn("[SMC] 'info cpus' returned no output (qRcmd unsupported or empty)");
+        }
+    }
+
     gdb.sendContinue();
 
     // --- 4. Main interception loop ---

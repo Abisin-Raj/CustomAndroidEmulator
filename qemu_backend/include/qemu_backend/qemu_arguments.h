@@ -15,6 +15,9 @@ struct QemuConfigParameters {
     // When true, appends -d unimp,guest_errors -D qemu_trace.log to observe
     // guest accesses to unmapped/unimplemented MMIO regions.
     bool enableMmioTrace = false;
+    // When true, appends -dumpdtb qemu_generated.dtb so QEMU writes its
+    // auto-generated DTB to disk for inspection and CPU reg comparison.
+    bool enableDtbDump   = false;
 };
 
 class QemuArguments {

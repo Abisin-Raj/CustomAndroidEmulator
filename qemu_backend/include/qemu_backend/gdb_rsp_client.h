@@ -83,6 +83,11 @@ public:
     // Returns thread IDs as-received (e.g. "p01.01", "p01.02").
     QStringList enumerateThreads();
 
+    // Send a QEMU monitor command via the GDB RSP qRcmd packet.
+    // QEMU replies with output via one or more 'O' hex-encoded console packets.
+    // Returns the decoded plain-text output, or an empty string on failure.
+    QString sendMonitorCommand(const QString& command);
+
 private:
     // Low-level RSP framing helpers
     bool     sendPacket(const QString& payload);

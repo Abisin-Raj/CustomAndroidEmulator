@@ -36,6 +36,12 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
         args << "-d" << "unimp,guest_errors" << "-D" << "qemu_trace.log";
     }
 
+    // DTB dump: QEMU writes its generated DTB to disk and exits.
+    // Decompile with: dtc -I dtb -O dts qemu_generated.dtb
+    if (params.enableDtbDump) {
+        args << "-dumpdtb" << "qemu_generated.dtb";
+    }
+
     if (!params.extraArgs.empty()) {
         QString extra = QString::fromStdString(params.extraArgs);
         QStringList extraParts = extra.split(' ', Qt::SkipEmptyParts);

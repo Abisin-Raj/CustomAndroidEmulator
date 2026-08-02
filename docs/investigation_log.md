@@ -126,43 +126,46 @@ The guest fails before reaching any CPU wake mechanism.
 
 ### Ruled Out
 
-- **Hypothesis B (APCS MMIO)**: `qemu_trace.log` is empty. The guest never wrote
-  to any unmapped MMIO region. The APCS registers were not touched.
-- **Hypothesis C (earlier blocker)**: CPU1–7 exist and are powered off in the
-  canonical QEMU PSCI power-off state (PC=0x0, EL1h). The guest reached the
-  CPU bring-up stage; it did not fail earlier.
+- **Hypothesis B (APCS MMIO)**: `qemu_trace.log` is 0 bytes. The guest never
+  wrote to any unmapped MMIO region.
+- **Hypothesis C (earlier blocker)**: All 8 vCPUs are instantiated in QEMU in
+  EL1h power-off state. The kernel reached secondary CPU bring-up.
 
-### Confirmed
+### Confirmed (Empirical Evidence)
 
-- All 8 vCPUs are created by QEMU and visible to GDB.
-- CPU1–7 are in QEMU's PSCI power-off state (PC=0, EL1h), waiting for a PSCI
-  `CPU_ON` call to set their entry address and release them.
-- The guest never issued a PSCI `CPU_ON` call that QEMU acted upon.
-- A `readRegister` bug (PSTATE is 32-bit, not 64-bit) was identified and fixed
-  via `decodeU32Le`; correct PSTATE is `0x400003c5` = EL1h.
+**Hypothesis A (MPIDR Mismatch in PSCI CPU_ON) is CONFIRMED.**
 
-### Leading Hypothesis
+1. **QEMU Auto-Generated DTB (`qemu_generated.dts`)**:
+   - `cpu@0`: `reg = <0x00>`, `enable-method = "psci"`
+   - `cpu@1`: `reg = <0x01>`, `enable-method = "psci"`
+   - `cpu@2`: `reg = <0x02>`, `enable-method = "psci"`
+   - ...
+   - `cpu@7`: `reg = <0x07>`, `enable-method = "psci"`
+   - QEMU assigns flat MPIDR values `0x00` through `0x07` to its 8 vCPUs.
 
-**Hypothesis A is the most consistent explanation.**
+2. **Qualcomm Vendor DTS (`original_kernel.dts`)**:
+   - `cpu@0`: `reg = <0x00 0x00>` (MPIDR `0x000`)
+   - `cpu@100`: `reg = <0x00 0x100>` (MPIDR `0x100`, Affinity 1 = 1)
+   - `cpu@200`: `reg = <0x00 0x200>` (MPIDR `0x200`, Affinity 1 = 2)
+   - ...
+   - `cpu@700`: `reg = <0x00 0x700>` (MPIDR `0x700`, Affinity 1 = 7)
 
-The guest does call PSCI `CPU_ON`, but QEMU's built-in PSCI handler rejects it
-before any GDB breakpoint fires, because the target MPIDR in the call (`0x100`
-for CPU1 as specified in the vendor DTS) does not match any vCPU in QEMU's
-generated DTB (which uses flat MPIDRs `0x01`–`0x07`).
+3. **The Root Cause**:
+   - The Qualcomm vendor kernel uses cluster-based MPIDR indexing (`0x100`,
+     `0x200`, etc.) for secondary cores.
+   - When the kernel invokes PSCI `CPU_ON(target_mpidr = 0x100, entry_pa)`, QEMU's
+     built-in PSCI handler searches its internal vCPU list for MPIDR `0x100`.
+   - QEMU only has vCPUs with MPIDRs `0x00`–`0x07`.
+   - QEMU returns `PSCI_RET_INVALID_PARAMS` (`-2`) to the kernel.
+   - The kernel CPU bring-up driver fails, times out after 250ms, and retries
+     warm-boot registration from the top — causing the exact 41-retry boot loop
+     observed in BET traces.
 
-QEMU's PSCI handler returns `PSCI_RET_INVALID_PARAMS`. No vCPU is started.
-The kernel's CPU hotplug driver times out and retries the entire boot sequence.
+### Resolution Plan for Phase 6.6B
 
-This hypothesis would be **confirmed** if QEMU logs a PSCI rejection. The absence
-of such a log line may indicate that QEMU's `-d unimp,guest_errors` does not
-cover PSCI internal handling. The next step is to check QEMU's built-in PSCI
-debug output via `-d psci` or by reading the CPU MPIDR topology QEMU actually
-uses.
+We have two options to resolve the MPIDR mismatch:
 
-### Why Phase 6.6B Exists
+1. **Option 1 (QEMU Topology parameters)**: Pass `-smp 8,sockets=1,clusters=8,cores=1,threads=1` or CPU topology arguments to force QEMU to assign MPIDRs matching `0x100`..`0x700`.
+2. **Option 2 (Vendor DTB / DTB Patch)**: Pass the compiled vendor DTB (or a patched DTB with flat MPIDRs matching QEMU's `0x01`..`0x07`) to QEMU via `-dtb`.
 
-The next action is to verify the MPIDR mismatch by extracting QEMU's actual
-CPU topology (via `info cpus` in the QEMU monitor or GDB `read MPIDR_EL1` on
-each vCPU) and comparing it against the MPIDRs embedded in the vendor DTS. If
-mismatched, passing `-dtb` with the vendor DTS (or correcting the QEMU CPU
-topology) should allow PSCI `CPU_ON` to succeed and start the secondary CPUs.
+

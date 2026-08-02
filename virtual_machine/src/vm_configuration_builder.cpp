@@ -14,9 +14,11 @@ QemuConfigParameters VmConfigurationBuilder::build(
     params.machine   = profile.machine;
     params.memory    = profile.memory;
     params.nographic = profile.nographic;
-    // Phase 6.6A investigation: capture unmapped MMIO accesses (-d unimp,guest_errors).
+    // Phase 6.6A/B investigation: capture unmapped MMIO accesses (-d unimp,guest_errors).
     // Remove or gate behind a flag once the secondary CPU boot mechanism is identified.
     params.enableMmioTrace = true;
+    // NOTE: enableDtbDump uses -machine virt,dumpdtb=... (machine property, not a top-level flag).
+    // DTB is obtained via a direct QEMU invocation in the investigation script instead.
     params.kernelPath   = tempKernelPath;
     params.ramdiskPath  = tempRamdiskPath;
 

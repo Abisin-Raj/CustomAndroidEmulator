@@ -285,6 +285,41 @@ QStringList GdbRspClient::enumerateThreads() {
     return result;
 }
 
+// ---------------------------------------------------------------------------
+// QEMU monitor command via qRcmd
+// ---------------------------------------------------------------------------
+QString GdbRspClient::sendMonitorCommand(const QString& command) {
+    // Hex-encode the command string (ASCII → hex pairs)
+    QString hexCmd;
+    for (QChar c : command)
+        hexCmd += QString("%1").arg(static_cast<uint8_t>(c.toLatin1()), 2, 16, QChar('0'));
+
+    if (!sendPacket("qRcmd," + hexCmd)) return {};
+
+    // QEMU replies with one or more 'O<hex-string>' console output packets,
+    // followed by a final 'OK' (success) or 'E<nn>' (error).
+    QString output;
+    for (int tries = 0; tries < 64; ++tries) {
+        QString resp;
+        if (!recvPacket(resp)) break;
+
+        if (resp.startsWith('O')) {
+            // Decode hex-encoded console text
+            QString hex = resp.mid(1);
+            for (int i = 0; i + 1 < hex.size(); i += 2) {
+                bool ok;
+                uint8_t ch = static_cast<uint8_t>(hex.mid(i, 2).toUInt(&ok, 16));
+                if (ok && ch) output += QChar(ch);
+            }
+        } else if (resp == "OK") {
+            break; // success — all output collected
+        } else {
+            spdlog::warn("[GDB] qRcmd unexpected reply: '{}'", resp.toStdString());
+            break;
+        }
+    }
+    return output;
+}
 
 bool GdbRspClient::sendPacket(const QString& payload) {
     if (!m_connected) return false;
