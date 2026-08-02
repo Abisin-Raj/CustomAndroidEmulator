@@ -54,9 +54,10 @@ public:
     static constexpr int REG_X6  =  6;
     static constexpr int REG_X7  =  7;
     static constexpr int REG_X8  =  8;   // Indirect result location (AAPCS64 9th arg)
-    static constexpr int REG_X30 = 30;  // Link Register (LR)
-    static constexpr int REG_SP  = 31;
-    static constexpr int REG_PC  = 32;
+    static constexpr int REG_X30   = 30;  // Link Register (LR)
+    static constexpr int REG_SP    = 31;
+    static constexpr int REG_PC    = 32;
+    static constexpr int REG_PSTATE = 33; // AArch64 PSTATE/CPSR; EL = (pstate >> 2) & 0x3
 
     // Read / write one 64-bit guest register by GDB register number.
     bool readRegister(int regNum, uint64_t& value);
@@ -77,6 +78,11 @@ public:
     // Select active thread for general register/memory access (Hg)
     bool selectThread(const QString& threadId);
 
+    // Enumerate all vCPU thread IDs known to QEMU.
+    // Uses RSP qfThreadInfo / qsThreadInfo packets.
+    // Returns thread IDs as-received (e.g. "p01.01", "p01.02").
+    QStringList enumerateThreads();
+
 private:
     // Low-level RSP framing helpers
     bool     sendPacket(const QString& payload);
@@ -84,6 +90,7 @@ private:
     uint8_t  checksum(const QString& data) const;
     QString  encodeU64Le(uint64_t value) const;   // 16 hex chars, LE byte order
     uint64_t decodeU64Le(const QString& hex) const;
+    uint64_t decodeU32Le(const QString& hex) const; // 8 hex chars, LE byte order → zero-extended
 
     QTcpSocket* m_socket   = nullptr;
     bool        m_connected = false;

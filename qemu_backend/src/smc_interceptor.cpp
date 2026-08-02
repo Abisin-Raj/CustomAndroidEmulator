@@ -167,6 +167,24 @@ void SmcInterceptorWorker::run() {
         }
         spdlog::info("[SMC] SMC breakpoint successfully armed at 0x{:016x}", addr);
     }
+
+    // --- 3b. Log initial vCPU state (PC + PSTATE + EL) for all threads ---
+    {
+        QStringList threads = gdb.enumerateThreads();
+        spdlog::info("[SMC] QEMU reports {} vCPU thread(s)", threads.size());
+        for (const QString& tid : threads) {
+            gdb.selectThread(tid);
+            uint64_t pc = 0, pstate = 0;
+            gdb.readRegister(GdbRspClient::REG_PC,     pc);
+            gdb.readRegister(GdbRspClient::REG_PSTATE, pstate);
+            int el = static_cast<int>((pstate >> 2) & 0x3);
+            spdlog::info("[SMC] vCPU {} initial state: PC=0x{:016x} PSTATE=0x{:08x} EL{}",
+                         tid.toStdString(), pc, pstate, el);
+        }
+        // Restore to default thread so the main loop starts cleanly
+        if (!threads.isEmpty()) gdb.selectThread(threads.first());
+    }
+
     gdb.sendContinue();
 
     // --- 4. Main interception loop ---
@@ -191,6 +209,23 @@ void SmcInterceptorWorker::run() {
         if (!threadId.isEmpty()) {
             spdlog::info("[SMC] Selected thread/CPU: {}", threadId.toStdString());
             gdb.selectThread(threadId);
+        }
+
+        // Log state of ALL vCPUs on every stop so we can observe if CPU1+ ever move
+        {
+            QStringList allThreads = gdb.enumerateThreads();
+            for (const QString& tid : allThreads) {
+                if (tid == threadId) continue; // stopped thread logged separately below
+                gdb.selectThread(tid);
+                uint64_t tpc = 0, tpstate = 0;
+                gdb.readRegister(GdbRspClient::REG_PC,     tpc);
+                gdb.readRegister(GdbRspClient::REG_PSTATE, tpstate);
+                int el = static_cast<int>((tpstate >> 2) & 0x3);
+                spdlog::debug("[SMC] vCPU {} observer: PC=0x{:016x} PSTATE=0x{:08x} EL{}",
+                              tid.toStdString(), tpc, tpstate, el);
+            }
+            // Re-select stopped thread for all subsequent register access
+            if (!threadId.isEmpty()) gdb.selectThread(threadId);
         }
 
         // --- Read current PC to confirm we hit one of our SMC breakpoints ---

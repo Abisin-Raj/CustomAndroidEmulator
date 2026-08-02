@@ -132,13 +132,20 @@ bool GdbRspClient::readRegister(int regNum, uint64_t& value) {
     QString resp;
     if (!recvPacket(resp)) return false;
 
-    // QEMU returns 16 hex chars (8 bytes) in little-endian byte order
-    if (resp.size() < 16) {
-        spdlog::warn("[GDB] Short register response for reg {}: '{}'", regNum, resp.toStdString());
-        return false;
+    // QEMU returns 16 hex chars (8 bytes) for 64-bit registers in little-endian
+    // byte order, or 8 hex chars (4 bytes) for 32-bit registers like PSTATE.
+    if (resp.size() == 16) {
+        value = decodeU64Le(resp.left(16));
+        return true;
     }
-    value = decodeU64Le(resp.left(16));
-    return true;
+    if (resp.size() == 8) {
+        // 32-bit register (e.g. PSTATE/CPSR) — zero-extend to 64 bits
+        value = decodeU32Le(resp.left(8));
+        return true;
+    }
+    spdlog::warn("[GDB] Unexpected register response length {} for reg {}: '{}'",
+                 resp.size(), regNum, resp.toStdString());
+    return false;
 }
 
 bool GdbRspClient::writeRegister(int regNum, uint64_t value) {
@@ -252,8 +259,33 @@ bool GdbRspClient::selectThread(const QString& threadId) {
 }
 
 // ---------------------------------------------------------------------------
-// Private: RSP packet framing
+// Thread enumeration — qfThreadInfo / qsThreadInfo
 // ---------------------------------------------------------------------------
+QStringList GdbRspClient::enumerateThreads() {
+    QStringList result;
+
+    // First batch
+    if (!sendPacket("qfThreadInfo")) return result;
+    QString resp;
+    if (!recvPacket(resp)) return result;
+
+    // QEMU replies with: m<id1>,<id2>,... or l (end-of-list)
+    while (resp.startsWith("m")) {
+        QString ids = resp.mid(1); // strip leading 'm'
+        for (const QString& id : ids.split(',', Qt::SkipEmptyParts))
+            result.append(id.trimmed());
+
+        // Ask for more
+        if (!sendPacket("qsThreadInfo")) break;
+        resp.clear();
+        if (!recvPacket(resp)) break;
+    }
+    // resp == "l" when QEMU signals end-of-list
+
+    return result;
+}
+
+
 bool GdbRspClient::sendPacket(const QString& payload) {
     if (!m_connected) return false;
 
@@ -321,6 +353,15 @@ QString GdbRspClient::encodeU64Le(uint64_t value) const {
 uint64_t GdbRspClient::decodeU64Le(const QString& hex) const {
     uint64_t result = 0;
     for (int i = 7; i >= 0; --i) {
+        result = (result << 8) | hex.mid(i * 2, 2).toUInt(nullptr, 16);
+    }
+    return result;
+}
+
+uint64_t GdbRspClient::decodeU32Le(const QString& hex) const {
+    // 8 hex chars = 4 bytes LE, zero-extended to uint64_t
+    uint64_t result = 0;
+    for (int i = 3; i >= 0; --i) {
         result = (result << 8) | hex.mid(i * 2, 2).toUInt(nullptr, 16);
     }
     return result;

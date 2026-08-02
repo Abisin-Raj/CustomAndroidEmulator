@@ -29,6 +29,13 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
 
     args << "-serial" << "file:qemu_uart.log";
 
+    // MMIO trace: log every guest access to an unmapped/unimplemented region.
+    // NOTE: -d unimp only captures what QEMU considers "unimplemented". If the
+    // target range is mapped as silent RAM, use GDB Z2 watchpoints as fallback.
+    if (params.enableMmioTrace) {
+        args << "-d" << "unimp,guest_errors" << "-D" << "qemu_trace.log";
+    }
+
     if (!params.extraArgs.empty()) {
         QString extra = QString::fromStdString(params.extraArgs);
         QStringList extraParts = extra.split(' ', Qt::SkipEmptyParts);

@@ -10,12 +10,15 @@ QemuConfigParameters VmConfigurationBuilder::build(
     const std::string& tempRamdiskPath
 ) {
     QemuConfigParameters params;
-    params.cpu = profile.cpu;
-    params.machine = profile.machine;
-    params.memory = profile.memory;
+    params.cpu       = profile.cpu;
+    params.machine   = profile.machine;
+    params.memory    = profile.memory;
     params.nographic = profile.nographic;
-    params.kernelPath = tempKernelPath;
-    params.ramdiskPath = tempRamdiskPath;
+    // Phase 6.6A investigation: capture unmapped MMIO accesses (-d unimp,guest_errors).
+    // Remove or gate behind a flag once the secondary CPU boot mechanism is identified.
+    params.enableMmioTrace = true;
+    params.kernelPath   = tempKernelPath;
+    params.ramdiskPath  = tempRamdiskPath;
 
     std::filesystem::path configPath = romDir / "boot_config.json";
     if (std::filesystem::exists(configPath)) {

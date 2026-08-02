@@ -11,7 +11,10 @@ struct QemuConfigParameters {
     std::string ramdiskPath;
     std::string cmdline;
     std::string extraArgs;
-    bool nographic = true;
+    bool nographic      = true;
+    // When true, appends -d unimp,guest_errors -D qemu_trace.log to observe
+    // guest accesses to unmapped/unimplemented MMIO regions.
+    bool enableMmioTrace = false;
 };
 
 class QemuArguments {
