@@ -45,27 +45,32 @@ std::vector<uint64_t> SmcInterceptorWorker::findSmcInstructions(
     std::vector<uint64_t> addrs;
     constexpr uint8_t smc_bytes[4] = { 0x03, 0x00, 0x00, 0xD4 };
 
-    spdlog::info("[SMC] Scanning 0x{:016x} + {} bytes for smc opcodes...",
+    spdlog::info("[SMC] Scanning 0x{:016x} + {} bytes for smc opcodes in chunks...",
         startAddr, scanBytes);
 
-    auto mem = gdb.readMemory(startAddr, scanBytes);
-    if (mem.empty()) {
-        spdlog::error("[SMC] Memory read failed at 0x{:016x}", startAddr);
-        return addrs;
-    }
+    constexpr int chunkSize = 16384; // 16KB chunks to avoid RSP buffer limits
+    for (int offset = 0; offset < scanBytes; offset += chunkSize) {
+        int bytesToRead = std::min(chunkSize, scanBytes - offset);
+        uint64_t currentAddr = startAddr + offset;
+        auto mem = gdb.readMemory(currentAddr, bytesToRead);
+        if (mem.empty()) {
+            continue;
+        }
 
-    for (int i = 0; i + 3 < static_cast<int>(mem.size()); i += 4) {
-        if (mem[i]   == smc_bytes[0] && mem[i+1] == smc_bytes[1] &&
-            mem[i+2] == smc_bytes[2] && mem[i+3] == smc_bytes[3]) {
-            uint64_t addr = startAddr + static_cast<uint64_t>(i);
-            spdlog::info("[SMC] Found smc instruction at 0x{:016x} (offset +0x{:x} from base)",
-                addr, i);
-            addrs.push_back(addr);
+        for (int i = 0; i + 3 < static_cast<int>(mem.size()); i += 4) {
+            if (mem[i]   == smc_bytes[0] && mem[i+1] == smc_bytes[1] &&
+                mem[i+2] == smc_bytes[2] && mem[i+3] == smc_bytes[3]) {
+                uint64_t addr = currentAddr + static_cast<uint64_t>(i);
+                spdlog::info("[SMC] Found smc instruction at 0x{:016x}", addr);
+                addrs.push_back(addr);
+            }
         }
     }
 
     if (addrs.empty()) {
         spdlog::warn("[SMC] No smc opcodes found in {} bytes from 0x{:016x}", scanBytes, startAddr);
+    } else {
+        spdlog::info("[SMC] Scan complete. Found {} smc instructions.", addrs.size());
     }
     return addrs;
 }
@@ -118,7 +123,14 @@ void SmcInterceptorWorker::run() {
                 mmuEnabled = true;
                 
                 // Scan memory for all smc instructions now that MMU translation is active
-                auto foundAddrs = findSmcInstructions(gdb, m_functionAddr, SMC_SCAN_BYTES);
+                uint64_t scanStart = m_resolver.findSymbolAddress("_text");
+                uint64_t scanSize = 16 * 1024 * 1024; // 16MB
+                if (scanStart == 0) {
+                    scanStart = m_functionAddr;
+                    scanSize = SMC_SCAN_BYTES;
+                    spdlog::warn("[SMC] _text symbol not resolved. Falling back to scan from function base.");
+                }
+                auto foundAddrs = findSmcInstructions(gdb, scanStart, scanSize);
                 if (foundAddrs.empty()) {
                     foundAddrs.push_back(m_functionAddr + 12);
                     spdlog::warn("[SMC] Memory scan failed. Falling back to static address: 0x{:016x}", m_functionAddr + 12);
@@ -163,6 +175,23 @@ void SmcInterceptorWorker::run() {
         // Wait indefinitely for a stop reply (breakpoint hit or SIGTERM)
         QString stopReply = gdb.waitForStop(0);
         if (stopReply.isEmpty() || m_stop.load()) break;
+
+        // Parse thread ID (e.g. "T05thread:p1.1;" or "T05thread:1;")
+        QString threadId;
+        int threadIdx = stopReply.indexOf("thread:");
+        if (threadIdx != -1) {
+            int start = threadIdx + 7;
+            int end = stopReply.indexOf(";", start);
+            if (end != -1) {
+                threadId = stopReply.mid(start, end - start);
+            } else {
+                threadId = stopReply.mid(start);
+            }
+        }
+        if (!threadId.isEmpty()) {
+            spdlog::info("[SMC] Selected thread/CPU: {}", threadId.toStdString());
+            gdb.selectThread(threadId);
+        }
 
         // --- Read current PC to confirm we hit one of our SMC breakpoints ---
         uint64_t pc = 0;
@@ -211,6 +240,8 @@ void SmcInterceptorWorker::run() {
 
 
 
+
+
         // ---------------------------------------------------------------
         // On the very first hit: disassemble the 16 bytes following the
         // smc instruction so we can confirm the arm_smccc_smc epilogue
@@ -219,7 +250,7 @@ void SmcInterceptorWorker::run() {
         // ---------------------------------------------------------------
         if (firstHit) {
             firstHit = false;
-            spdlog::info("[SMC] === First hit — inspecting function instruction stream ===");
+            spdlog::info("[SMC] === Inspect function instruction stream on first hit (increased size) ===");
             uint64_t funcBase = pc - 12;
             auto postInsns = gdb.readMemory(funcBase, 512);
             if (!postInsns.empty()) {

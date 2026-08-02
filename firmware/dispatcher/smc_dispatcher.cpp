@@ -60,6 +60,30 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
         }
     }
 
+    // Handle SCM v1 boot/warm-boot SCM calls (0x82000101 / 0xC2000101)
+    if (req.id.raw == 0x82000101ULL || req.id.raw == 0xC2000101ULL) {
+        spdlog::info("[SCM] Handling SCM v1 warm-boot call 0x{:08x}", req.id.raw);
+        SmcResult res;
+        res.x0 = SMCCC_RET_SUCCESS; // 0 (success)
+        res.x1 = 1;                 // 1 (success status for res.a0)
+        res.x2 = x2;
+        res.x3 = x3;
+        res.handled = true;
+        return res;
+    }
+
+    // Handle SCM v2 boot/warm-boot setting call (0x42000A01)
+    if (req.id.raw == 0x42000A01ULL) {
+        spdlog::info("[SCM] Handling SCM v2 warm-boot setting call 0x42000A01: flags=0x{:x} entry=0x{:x} len=0x{:x}", x1, x2, x3);
+        SmcResult res;
+        res.x0 = SMCCC_RET_SUCCESS; // 0 (success)
+        res.x1 = 1;                 // 1 (success status for res.a0)
+        res.x2 = x2;
+        res.x3 = x3;
+        res.handled = true;
+        return res;
+    }
+
     // Walk registered services and find a matching (owner, service) pair
     for (auto& svc : m_services) {
         if (svc->owner()   == req.id.owner()   &&

@@ -240,6 +240,18 @@ bool GdbRspClient::removeBreakpoint(uint64_t addr) {
 }
 
 // ---------------------------------------------------------------------------
+// Thread selection
+// ---------------------------------------------------------------------------
+bool GdbRspClient::selectThread(const QString& threadId) {
+    if (threadId.isEmpty()) return true;
+    QString cmd = "Hg" + threadId;
+    if (!sendPacket(cmd)) return false;
+    QString resp;
+    if (!recvPacket(resp)) return false;
+    return resp == "OK";
+}
+
+// ---------------------------------------------------------------------------
 // Private: RSP packet framing
 // ---------------------------------------------------------------------------
 bool GdbRspClient::sendPacket(const QString& payload) {

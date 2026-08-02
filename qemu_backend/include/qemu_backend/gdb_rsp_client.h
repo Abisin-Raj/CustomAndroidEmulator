@@ -73,6 +73,10 @@ public:
     bool insertBreakpoint(uint64_t addr);
     bool removeBreakpoint(uint64_t addr);
 
+    // --- Thread selection ---
+    // Select active thread for general register/memory access (Hg)
+    bool selectThread(const QString& threadId);
+
 private:
     // Low-level RSP framing helpers
     bool     sendPacket(const QString& payload);
