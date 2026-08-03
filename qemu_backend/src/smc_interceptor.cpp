@@ -699,26 +699,83 @@ void SmcInterceptorWorker::run() {
 
 
         } else {
-            // Apply register translation (e.g. MPIDR translation X1: 0x100 -> 0x1) before native QEMU step
-            if (result.x1 != x1) {
-                spdlog::info("[PSCI] Applying MPIDR translation to X1 before native QEMU step: 0x{:x} -> 0x{:x}", x1, result.x1);
-                gdb.writeRegister(GdbRspClient::REG_X0 + 1, result.x1);
+            bool isCpuOn = (req.id.raw == 0xC4000003ULL || req.id.raw == 0x84000003ULL);
+
+            if (isCpuOn) {
+                // Phase 6.11 Hypothesis A Experiment: Test sendContinue() vs sendStep() for PSCI_CPU_ON
+                uint64_t cpu0_pc_before = pc;
+                uint64_t cpu0_pstate_before = 0;
+                gdb.readRegister(GdbRspClient::REG_PSTATE, cpu0_pstate_before);
+
+                uint64_t cpu1_pc_before = 0, cpu1_pstate_before = 0;
+                gdb.selectThread("p01.02");
+                gdb.readRegister(GdbRspClient::REG_PC, cpu1_pc_before);
+                gdb.readRegister(GdbRspClient::REG_PSTATE, cpu1_pstate_before);
+                gdb.selectThread("p01.01");
+
+                spdlog::info("[Phase 6.11 Pre-Call Metrics] PSCI_CPU_ON (0x{:08x}): guest_mpidr=0x{:x} -> translated_mpidr=0x{:x} entry=0x{:016x}",
+                    req.id.raw, x1, result.x1, x2);
+                spdlog::info("[Phase 6.11 Pre-Call Metrics] vCPU0: PC=0x{:016x} PSTATE=0x{:x}", cpu0_pc_before, cpu0_pstate_before);
+                spdlog::info("[Phase 6.11 Pre-Call Metrics] vCPU1: PC=0x{:016x} PSTATE=0x{:x}", cpu1_pc_before, cpu1_pstate_before);
+
+                // Write translated MPIDR 0x1 into X1 before resuming
+                if (result.x1 != x1) {
+                    spdlog::info("[Phase 6.11 Experiment] Translating X1 (MPIDR): 0x{:x} -> 0x{:x}", x1, result.x1);
+                    gdb.writeRegister(GdbRspClient::REG_X0 + 1, result.x1);
+                }
+
+                // Remove breakpoint at current PC and execute via sendContinue() to test Hypothesis A
+                gdb.removeBreakpoint(pc);
+                spdlog::info("[Phase 6.11 Experiment] Resuming QEMU natively via sendContinue() (Hypothesis A test)...");
+                gdb.sendContinue();
+
+                // Wait for execution to pause at next breakpoint or timeout
+                QString stopMsg = gdb.waitForStop(3000);
+
+                uint64_t cpu0_pc_after = 0, cpu0_pstate_after = 0, post_x0 = 0;
+                gdb.selectThread("p01.01");
+                gdb.readRegister(GdbRspClient::REG_PC, cpu0_pc_after);
+                gdb.readRegister(GdbRspClient::REG_PSTATE, cpu0_pstate_after);
+                gdb.readRegister(GdbRspClient::REG_X0, post_x0);
+
+                uint64_t cpu1_pc_after = 0, cpu1_pstate_after = 0;
+                gdb.selectThread("p01.02");
+                gdb.readRegister(GdbRspClient::REG_PC, cpu1_pc_after);
+                gdb.readRegister(GdbRspClient::REG_PSTATE, cpu1_pstate_after);
+                gdb.selectThread("p01.01");
+
+                bool cpu1_left_reset = (cpu1_pc_after != 0);
+                bool cpu1_executed = (cpu1_pc_after != cpu1_pc_before);
+
+                spdlog::info("[Phase 6.11 Post-Call Metrics] StopReason='{}' Post-X0=0x{:016x} (dec {:d})",
+                    stopMsg.toStdString(), post_x0, static_cast<int64_t>(post_x0));
+                spdlog::info("[Phase 6.11 Post-Call Metrics] vCPU0: PC=0x{:016x} PSTATE=0x{:x}", cpu0_pc_after, cpu0_pstate_after);
+                spdlog::info("[Phase 6.11 Post-Call Metrics] vCPU1: PC=0x{:016x} PSTATE=0x{:x} (LeftReset={} Executed={})",
+                    cpu1_pc_after, cpu1_pstate_after, cpu1_left_reset ? "YES" : "NO", cpu1_executed ? "YES" : "NO");
+
+                // Re-arm breakpoint at original PC
+                gdb.insertBreakpoint(pc);
+            } else {
+                // Standard passthrough for non-CPU_ON calls
+                if (result.x1 != x1) {
+                    spdlog::info("[PSCI] Applying translation to X1 before native QEMU step: 0x{:x} -> 0x{:x}", x1, result.x1);
+                    gdb.writeRegister(GdbRspClient::REG_X0 + 1, result.x1);
+                }
+
+                spdlog::info("[SMC] Passthrough: {} (Unhandled) → stepping natively for QEMU processing (X0_before=0x{:x})",
+                    req.id.toString(), x0);
+                gdb.removeBreakpoint(pc);
+                gdb.sendStep();
+                gdb.insertBreakpoint(pc);
+
+                uint64_t post_x0 = 0, post_x1 = 0, post_x2 = 0, post_x3 = 0;
+                gdb.readRegister(GdbRspClient::REG_X0,     post_x0);
+                gdb.readRegister(GdbRspClient::REG_X0 + 1, post_x1);
+                gdb.readRegister(GdbRspClient::REG_X0 + 2, post_x2);
+                gdb.readRegister(GdbRspClient::REG_X0 + 3, post_x3);
+                spdlog::info("[SMC]   Post-step Native Register Return: X0=0x{:016x} (dec {:d}) X1=0x{:016x} X2=0x{:016x} X3=0x{:016x}",
+                    post_x0, static_cast<int64_t>(post_x0), post_x1, post_x2, post_x3);
             }
-
-            spdlog::info("[SMC] Passthrough: {} (Unhandled) → stepping natively for QEMU processing (X0_before=0x{:x})",
-                req.id.toString(), x0);
-            // Temporarily remove breakpoint, single-step the instruction natively via QEMU, then re-arm
-            gdb.removeBreakpoint(pc);
-            gdb.sendStep();
-            gdb.insertBreakpoint(pc);
-
-            uint64_t post_x0 = 0, post_x1 = 0, post_x2 = 0, post_x3 = 0;
-            gdb.readRegister(GdbRspClient::REG_X0,     post_x0);
-            gdb.readRegister(GdbRspClient::REG_X0 + 1, post_x1);
-            gdb.readRegister(GdbRspClient::REG_X0 + 2, post_x2);
-            gdb.readRegister(GdbRspClient::REG_X0 + 3, post_x3);
-            spdlog::info("[SMC]   Post-step Native Register Return: X0=0x{:016x} (dec {:d}) X1=0x{:016x} X2=0x{:016x} X3=0x{:016x}",
-                post_x0, static_cast<int64_t>(post_x0), post_x1, post_x2, post_x3);
 
             if (req.id.raw == 0x84000009ULL) {
                 uint64_t fp = 0;
