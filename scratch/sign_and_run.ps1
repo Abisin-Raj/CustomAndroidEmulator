@@ -1,7 +1,15 @@
 $cert = Get-ChildItem -Path Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
-$exePath = "C:\Users\ABISIN RAJ\Desktop\Projects\CustomAndroidEmulator\build_ninja\tests\run_tests.exe"
-Write-Host "Signing $exePath with certificate $($cert.Thumbprint)..."
-
-Set-AuthenticodeSignature -FilePath $exePath -Certificate $cert
-Write-Host "Signature applied. Running..."
+$exePath = "C:\Users\ABISIN RAJ\Desktop\Projects\CustomAndroidEmulator\build_ninja\tests\run_test_runner.exe"
+Unblock-File -Path $exePath -ErrorAction SilentlyContinue
+Set-AuthenticodeSignature -FilePath $exePath -Certificate $cert | Out-Null
+Start-Sleep -Seconds 1
 & $exePath --run-real-vm
+
+
+
+
+
+
+
+
+

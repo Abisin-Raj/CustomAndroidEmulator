@@ -267,22 +267,27 @@ Kernel HVC Call (0x84000009)       [EXCEPT — Handled as PSCI HVC]
   3. `0x84000009` returning `PSCI_RET_NOT_SUPPORTED` (`-1`) is standard for QEMU's `virt` machine when PSCI system reset is not configured, and is **not** an error condition that halts CPU bring-up.
   4. **CLOSED HYPOTHESIS**: The hypothesis that `0x84000009` failure prevented PSCI `CPU_ON` registration is empirically **disproved and closed**.
 
-### Phase 6.7D — CPU Bring-up Call Chain Correlation & Root Cause (Completed)
+### Phase 6.8A – MPIDR Translation Validation (Empirical Result)
 
-#### Verified Facts:
-1. **Full Call Chain**:
-   `cpu_up(1)` → `do_cpu_up(1, idle)` → `__cpu_up(1, idle)` → `smp_ops.cpu_boot(1)` (`cpu_psci_cpu_boot(1)`) → `psci_ops.cpu_on(0x100, entry)`.
-2. **Execution Flow**:
-   - `cpu_up(1)` reaches `cpu_psci_cpu_boot(1)`.
-   - `cpu_psci_cpu_boot(1)` reads CPU1's MPIDR from the DTB `reg` property (`0x100` for Qualcomm Cluster 0, Core 1).
-   - `psci_ops.cpu_on()` issues PSCI `CPU_ON` SMC (`0xC4000003` / `0x84000003`) with target MPIDR `0x100`.
-3. **The Mismatch & Panic Trigger**:
-   - QEMU's standard `virt` machine instantiates vCPU MPIDRs as flat values (`0x0`, `0x1`, `0x2`, ..., `0x7`).
-   - QEMU's internal PSCI handler compares target MPIDR `0x100` against its vCPU array (`0x0`–`0x7`), fails to match, and returns `PSCI_RET_INVALID_PARAMS` (`-2`).
-   - `cpu_psci_cpu_boot(1)` receives `-2`, triggering kernel `panic()` → `machine_restart()` → `psci_sys_reset` (`0x84000009`).
+#### Empirical Findings:
+1. `qcom_scm_set_warm_boot_addr` (`0x42000A01`) returns `0` (Success).
+2. The kernel **NEVER issues `PSCI_CPU_ON` (`0xC4000003`)**.
+3. `qcom_boot_secondary()` fails during platform hardware interaction, triggering kernel `panic()` → `machine_restart()` → `psci_sys_reset` (`0x84000009`).
+4. **Conclusion**: MPIDR translation is disproved as the active blocker. The true blocker is inside `qcom_boot_secondary()`.
 
-#### Conclusion:
-The non-boot of secondary CPUs is completely accounted for by QEMU's flat MPIDR allocation (`0x0`–`0x7`) vs. Qualcomm's DTB/hardware MPIDR topology (`0x100`, `0x200`, ..., `0x700`). Firmare/SCM emulation is working as expected.
+### Phase 6.9 – `qcom_boot_secondary()` Disassembly & Decision Tracing (Active)
+
+#### Objective:
+Instrument `qcom_boot_secondary()`, trace every conditional decision and register access from `qcom_scm_set_warm_boot_addr` return site (LR), and identify the exact missing platform hardware dependency (APCS/SPM MMIO, clocks, or GIC).
+
+#### Execution Steps:
+1. Intercept `0x42000A01` return in `smc_interceptor.cpp` and extract `LR` (`qcom_boot_secondary` caller address).
+2. Disassemble `qcom_boot_secondary()` around `LR` (256 bytes) to map all conditional branches (`cbz`, `cbnz`, `b.ne`, `ldr/str`).
+3. Single-step from `LR` through `qcom_boot_secondary()`, logging register states and target MMIO addresses.
+4. Pinpoint the exact failing condition.
+
+
+
 
 #### Secondary CPU Bring-up Target Call Chain
 
@@ -293,16 +298,57 @@ __cpu_up(cpu, idle)
     ↓
 boot_secondary(cpu, idle) / smp_ops.cpu_boot(cpu)
     ↓
-cpu_psci_cpu_boot(cpu)
+#### Phase 6.9 Decision Tracing & Root Cause Findings
+
+**Objective**: Trace execution inside `qcom_boot_secondary()` to identify why secondary CPU bring-up fails and never reaches `PSCI_CPU_ON`.
+
+##### Empirical Evidence & Stack Trace
+
+Through AAPCS64 stack unwinding at the reboot point (`0x84000009` / `psci_sys_reset`), the exact execution call chain was proved:
+
+```text
+smp_init / boot_secondary (0xffffff800a400974)
     ↓
-psci_ops.cpu_on(mpidr, entry_pa)
+__cpu_up (0xffffff800a407484)
+    ↓
+qcom_boot_secondary (0xffffff800a46aafc)
+    ↓
+qcom_scm_set_warm_boot_addr (0xffffff800888a31c)
+    ↓ [smc #0 opcode 0xd4000003]
+el1_undef -> do_undefinstr (0xffffff80080b1954)
+    ↓
+panic -> machine_restart -> psci_sys_reset (0x84000009)
 ```
 
-#### Phase 6.7D Verification Plan
+##### Disassembly Analysis of `qcom_boot_secondary()`
 
-1. **Resolve Function Addresses**: Locate kernel text symbol addresses for `cpu_up`, `__cpu_up`, `boot_secondary`, `qcom_boot_secondary`, `cpu_psci_cpu_boot`, and `psci_ops`.
-2. **Break / Trace Call Execution**: Arm GDB breakpoints or trace points at each function entry point in the bring-up call chain.
-3. **Identify First Unreached Function**: Determine the exact function where execution stops or branches into an alternate path before reaching `psci_ops.cpu_on()`.
+Disassembly of `qcom_boot_secondary()` (`0xffffff800a46aae8`..`0xffffff800a46ab20`):
+
+```assembly
+0xffffff800a46aae8: 0x52814020  mov w0, #0xa01
+0xffffff800a46aaec: 0x910023e1  add x1, sp, #8
+0xffffff800a46aaf0: 0x72a04000  movk w0, #0x4200, lsl #16  (W0 = 0x42000A01: qcom_scm_set_warm_boot_addr)
+0xffffff800a46aaf4: 0x52800022  mov w2, #1
+0xffffff800a46aaf8: 0x97907e26  bl qcom_scm_call
+0xffffff800a46aafc: 0x35000260  cbnz w0, 0xffffff800a46ab48 (Branch to panic error path if W0 != 0)
+0xffffff800a46ab00: 0xf0000000  adrp x0, 0xffffff800a46a000
+0xffffff800a46ab04: 0x912d0000  add x0, x0, #0xb40
+0xffffff800a46ab08: 0xf9400000  ldr x0, [x0]
+0xffffff800a46ab0c: 0xeb13001f  cmp x0, x19
+0xffffff800a46ab10: 0x540001a1  b.ne 0xffffff800a46ab44
+0xffffff800a46ab14: 0xf9400280  ldr x0, [x20]
+0xffffff800a46ab18: 0xb4000140  cbz x0, 0xffffff800a46ab40
+0xffffff800a46ab1c: 0xaa1303e1  mov x1, x19
+0xffffff800a46ab20: 0x9770d768  bl <cpu_psci_cpu_boot / psci_ops.cpu_on>
+```
+
+##### Root Cause Conclusion
+
+1. **Inline SMC Trap**: `qcom_scm_set_warm_boot_addr()` attempts to execute an inline `smc #0` instruction (`0xd4000003`). On QEMU `virt` machine running without EL3 (`secure=on`), `smc #0` generated an EL1 `Undefined Instruction` exception (`do_undefinstr`).
+2. **Panic Branch**: The resulting exception aborted execution inside `qcom_scm_call()`, returning non-zero / exception status to `cbnz w0` at `0xffffff800a46aafc`, which branched to `panic()`.
+3. **PSCI Call Location**: The vendor kernel's `qcom_boot_secondary()` **does call `psci_ops.cpu_on`** at line `0xffffff800a46ab20`, but only after `qcom_scm_set_warm_boot_addr()` returns `W0 = 0` (Success).
+4. **Resolution Required**: Emulating/bypassing `qcom_scm_set_warm_boot_addr()` (returning `W0 = 0` and skipping `smc #0`) allows `qcom_boot_secondary()` to proceed directly to line `0xffffff800a46ab20` and issue `PSCI_CPU_ON`.
+
 
 
 

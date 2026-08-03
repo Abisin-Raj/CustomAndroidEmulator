@@ -1,8 +1,8 @@
-add_executable(run_tests
+add_executable(run_test_runner
     src/test_main.cpp
 )
 
-target_link_libraries(run_tests PRIVATE
+target_link_libraries(run_test_runner PRIVATE
     core
     models
     image_parser
@@ -20,3 +20,4 @@ target_link_libraries(run_tests PRIVATE
     firmware
     behavior_exploration_tool
 )
+

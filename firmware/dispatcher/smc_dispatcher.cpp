@@ -80,6 +80,18 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
         return res;
     }
 
+    // Handle PSCI CPU_ON calls (0xC4000003 / 0x84000003) — logged by dispatcher, passed to QEMU natively
+    if (req.id.raw == 0xC4000003ULL || req.id.raw == 0x84000003ULL) {
+        uint64_t guestMpidr = x1;
+        uint64_t qemuMpidr = (guestMpidr >= 0x100) ? (guestMpidr >> 8) : guestMpidr;
+        spdlog::info("[PSCI] CPU_ON request received: guest_mpidr=0x{:x} -> translated qemu_mpidr=0x{:x} entry=0x{:016x}",
+            guestMpidr, qemuMpidr, x2);
+        // Handled via MPIDR translation in interceptor -> pass to QEMU native PSCI engine
+        return { SMCCC_RET_SUCCESS, qemuMpidr, x2, x3, false };
+    }
+
+
+
 
 
     // Walk registered services and find a matching (owner, service) pair

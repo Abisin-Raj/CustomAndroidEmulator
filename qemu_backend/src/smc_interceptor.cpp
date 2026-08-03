@@ -95,7 +95,24 @@ void SmcInterceptorWorker::run() {
         emit interceptorStopped();
         return;
     }
-    // --- 1. Release the guest from -S pause immediately ---
+    // Patch physical memory at startup (0x8090a25c) before releasing guest from -S pause
+    uint32_t nopOp = 0xd503201f;
+    std::vector<uint8_t> nopBytes = {
+        static_cast<uint8_t>(nopOp & 0xFF),
+        static_cast<uint8_t>((nopOp >> 8) & 0xFF),
+        static_cast<uint8_t>((nopOp >> 16) & 0xFF),
+        static_cast<uint8_t>((nopOp >> 24) & 0xFF)
+    };
+    gdb.writeMemory(0x8090a25cULL, nopBytes);
+    gdb.writeMemory(0x8090a26cULL, nopBytes);
+    spdlog::info("[SMC] Startup RAM NOP patch applied at 0x8090a25c/6c (t=0.0s) to prevent early EL1 smc traps!");
+
+    // Arm hardware breakpoint at kernel _text entry (0xffffff8008000000) BEFORE releasing guest
+    gdb.insertBreakpoint(0xffffff8008000000ULL);
+    spdlog::info("[SMC] Armed initial hardware breakpoint at _text (0xffffff8008000000) at t=0.0s!");
+
+    // Release the guest from -S pause
+
     // This allows the guest kernel to run its early assembly bootloader,
     // enable the MMU, and enter virtual memory mode.
     spdlog::info("[SMC] Connected. Releasing guest to initialize MMU...");
@@ -107,9 +124,10 @@ void SmcInterceptorWorker::run() {
     bool mmuEnabled = false;
     int retries = 0;
 
-    while (!mmuEnabled && retries < 20 && !m_stop.load()) {
-        // Sleep 150ms to allow execution progression
-        QThread::msleep(150);
+    while (!mmuEnabled && retries < 50 && !m_stop.load()) {
+        // Sleep 5ms for ultra-fast MMU enablement capture
+        QThread::msleep(5);
+
 
         spdlog::info("[SMC] Interrupting guest to verify memory translation state (attempt {})...", retries + 1);
         if (!gdb.sendInterrupt()) {
@@ -127,13 +145,32 @@ void SmcInterceptorWorker::run() {
         if (gdb.readRegister(GdbRspClient::REG_PC, pc)) {
             if (pc >= 0xffffff8000000000ULL) {
                 mmuEnabled = true;
-                // Target ONLY verified __arm_smccc_smc and __arm_smccc_hvc wrappers
+                // Target entry points: kernel _text entry, SMC wrapper, HVC wrapper
                 std::vector<uint64_t> targetedAddrs = {
-                    0xffffff80080a02b4ULL, // __arm_smccc_smc (SMC vector entry point)
-                    0xffffff80080a02e0ULL  // __arm_smccc_hvc (HVC vector entry point)
+                    0xffffff8008000000ULL,         // _text (kernel entry)
+                    0xffffff80080a02b4ULL,         // __arm_smccc_smc
+                    0xffffff80080a02e0ULL          // __arm_smccc_hvc
                 };
                 smcAddrs = targetedAddrs;
+
+                // Patch inline smc #0 instructions (0xd4000003) to NOP (0xd503201f) to prevent EL1 Undefined Instruction traps in QEMU virt
+                uint32_t nopOp = 0xd503201f;
+                std::vector<uint8_t> nopBytes = {
+                    static_cast<uint8_t>(nopOp & 0xFF),
+                    static_cast<uint8_t>((nopOp >> 8) & 0xFF),
+                    static_cast<uint8_t>((nopOp >> 16) & 0xFF),
+                    static_cast<uint8_t>((nopOp >> 24) & 0xFF)
+                };
+                gdb.writeMemory(0xffffff800888a25cULL, nopBytes);
+                gdb.writeMemory(0xffffff800888a26cULL, nopBytes);
+                spdlog::info("[SMC] Patched inline smc #0 opcodes at 0xffffff800888a25c and 0x888a26c to NOP");
+
                 break;
+
+
+
+
+
             } else {
                 spdlog::info("[SMC] Guest still in physical execution space (PC=0x{:016x}). Resuming...", pc);
                 gdb.sendContinue();
@@ -257,8 +294,57 @@ void SmcInterceptorWorker::run() {
         gdb.readRegister(GdbRspClient::REG_X0 + 5, x5);
         gdb.readRegister(GdbRspClient::REG_X0 + 6, x6);
 
+        // Phase 6.9: Intercept kernel _text entry (0xffffff8008000000) and patch inline smc #0 instructions to NOP before driver init
+        if (pc == 0xffffff8008000000ULL) {
+            spdlog::info("[Phase 6.9 Tracing] Hit kernel _text entry (0xffffff8008000000)! Applying NOP patch to inline smc #0 opcodes in virtual memory...");
+            uint32_t nopOp = 0xd503201f;
+            std::vector<uint8_t> nopBytes = {
+                static_cast<uint8_t>(nopOp & 0xFF),
+                static_cast<uint8_t>((nopOp >> 8) & 0xFF),
+                static_cast<uint8_t>((nopOp >> 16) & 0xFF),
+                static_cast<uint8_t>((nopOp >> 24) & 0xFF)
+            };
+            gdb.writeMemory(0xffffff800888a25cULL, nopBytes);
+            gdb.writeMemory(0xffffff800888a26cULL, nopBytes);
+            spdlog::info("[Phase 6.9 Tracing] Patched 0xffffff800888a25c and 0x888a26c to NOP in kernel virtual memory!");
+            gdb.sendContinue();
+            continue;
+        }
+
+        // Phase 6.9: Intercept qcom_scm_set_warm_boot_addr entry (0xffffff800888a240..254), return 0 to LR, and step-trace qcom_boot_secondary()
+
+        if (pc >= 0xffffff800888a240ULL && pc <= 0xffffff800888a254ULL) {
+            uint64_t lr = 0;
+            gdb.readRegister(GdbRspClient::REG_X30, lr);
+            spdlog::info("[Phase 6.9 Tracing] Hit qcom_scm_set_warm_boot_addr entry (PC=0x{:016x})! Return LR=0x{:016x} ({})",
+                         pc, lr, m_resolver.resolveAddress(lr));
+
+            // Return 0 (success) directly to qcom_boot_secondary
+            gdb.writeRegister(GdbRspClient::REG_X0, 0);
+            gdb.writeRegister(GdbRspClient::REG_PC, lr);
+            spdlog::info("[Phase 6.9 Tracing] Bypassed SCM call. PC redirected to LR=0x{:016x}. Single-stepping qcom_boot_secondary()...", lr);
+
+            // Single-step 40 instructions in qcom_boot_secondary() to trace decision logic & MMIO accesses
+            for (int step = 1; step <= 40; ++step) {
+                gdb.sendStep();
+                uint64_t stepPc = 0, stepX0 = 0, stepX1 = 0, stepX2 = 0, stepX3 = 0;
+                gdb.readRegister(GdbRspClient::REG_PC, stepPc);
+                gdb.readRegister(GdbRspClient::REG_X0, stepX0);
+                gdb.readRegister(GdbRspClient::REG_X0 + 1, stepX1);
+                gdb.readRegister(GdbRspClient::REG_X0 + 2, stepX2);
+                gdb.readRegister(GdbRspClient::REG_X0 + 3, stepX3);
+                spdlog::info("[Phase 6.9 Step {:02d}] PC=0x{:016x} ({}) X0=0x{:x} X1=0x{:x} X2=0x{:x} X3=0x{:x}",
+                             step, stepPc, m_resolver.resolveAddress(stepPc), stepX0, stepX1, stepX2, stepX3);
+            }
+
+            gdb.sendContinue();
+            continue;
+        }
+
+
         // Read LR (X30), SP and X19 for call-chain and result mapping tracing
         uint64_t lr = 0, sp = 0, x19 = 0;
+
         gdb.readRegister(GdbRspClient::REG_X30, lr);
         gdb.readRegister(GdbRspClient::REG_SP,  sp);
         gdb.readRegister(GdbRspClient::REG_X0 + 19, x19);
@@ -271,9 +357,26 @@ void SmcInterceptorWorker::run() {
         req.args[4] = x5;
         req.args[5] = x6;
 
+        if (req.id.raw == 0xC4000003ULL || req.id.raw == 0x84000003ULL) {
+            uint64_t guestMpidr = x1;
+            uint64_t qemuMpidr = (guestMpidr >= 0x100) ? (guestMpidr >> 8) : guestMpidr;
+            spdlog::info("[PSCI] === PSCI CPU_ON Intercepted (0x{:08x}) ===", req.id.raw);
+            spdlog::info("[PSCI]   Guest MPIDR: 0x{:x} -> Translated QEMU MPIDR: 0x{:x} | Entry Point: 0x{:016x}",
+                         guestMpidr, qemuMpidr, x2);
+            spdlog::info("[PSCI]   Caller PC: 0x{:016x} ({}) | LR: 0x{:016x} ({})",
+                         pc, m_resolver.resolveAddress(pc), lr, m_resolver.resolveAddress(lr));
+
+            // Write translated MPIDR back into guest register X1 so QEMU's PSCI handler accepts it
+            gdb.writeRegister(GdbRspClient::REG_X0 + 1, qemuMpidr);
+            x1 = qemuMpidr;
+            req.args[0] = qemuMpidr;
+        }
+
+
         spdlog::info("[SMC] Intercepted {} at PC=0x{:016x} LR=0x{:016x} SP=0x{:016x} X19=0x{:016x}: "
                      "X1=0x{:x}, X2=0x{:x}, X3=0x{:x}",
             req.id.toString(), pc, lr, sp, x19, x1, x2, x3);
+
         spdlog::info("[SMC]   Symbol PC: {} | Symbol LR: {}",
             m_resolver.resolveAddress(pc), m_resolver.resolveAddress(lr));
 
@@ -480,39 +583,32 @@ void SmcInterceptorWorker::run() {
             spdlog::info("[SMC] Emulated: {} → X0=0x{:x} handled={} PC now=0x{:016x}",
                 req.id.toString(), result.x0, result.handled, pc + 4);
 
-            // Phase 6.7D: Disassemble 256 bytes &3. unwind stack after SCM warm-boot/CPU-on calls.
+            // Phase 6.9: Single-step post-warm-boot execution to capture panic string & MMIO accesses
             uint32_t smcCmd = static_cast<uint32_t>(x0 & 0xFFFFFFFFULL);
-            if (smcCmd == 0x42000A01ULL || smcCmd == 0x82000101ULL || smcCmd == 0xC2000101ULL || smcCmd == 0x00000001ULL) {
-                uint64_t postPc = pc + 4;
-                spdlog::info("[SMC] === Phase 6.7D Post-SMC(0x{:08x}) Execution Stream (PC=0x{:016x}) ===", smcCmd, postPc);
-                auto postMem = gdb.readMemory(postPc, 256);
-                if (!postMem.empty()) {
-                    for (size_t i = 0; i + 3 < postMem.size(); i += 4) {
-                        uint64_t insnAddr = postPc + i;
-                        uint32_t insn = static_cast<uint32_t>(postMem[i])
-                                      | (static_cast<uint32_t>(postMem[i+1]) << 8)
-                                      | (static_cast<uint32_t>(postMem[i+2]) << 16)
-                                      | (static_cast<uint32_t>(postMem[i+3]) << 24);
-                        spdlog::info("[SMC]   0x{:016x}: 0x{:08x}", insnAddr, insn);
-                    }
-                }
+            if (smcCmd == 0x42000A01ULL) {
+                spdlog::info("[Phase 6.9 Tracing] Single-stepping post-warm-boot to capture panic string & MMIO accesses...");
+                for (int step = 1; step <= 40; ++step) {
+                    gdb.sendStep();
+                    uint64_t stepPc = 0, stepX0 = 0, stepX1 = 0, stepX2 = 0;
+                    gdb.readRegister(GdbRspClient::REG_PC, stepPc);
+                    gdb.readRegister(GdbRspClient::REG_X0, stepX0);
+                    gdb.readRegister(GdbRspClient::REG_X0 + 1, stepX1);
+                    gdb.readRegister(GdbRspClient::REG_X0 + 2, stepX2);
 
-                if (sp != 0) {
-                    auto stackTop = gdb.readMemory(sp, 256);
-                    if (!stackTop.empty()) {
-                        spdlog::info("[SMC] === Unwinding Stack Frames at SP=0x{:016x} for 0x{:08x} ===", sp, smcCmd);
-                        for (size_t i = 0; i + 7 < stackTop.size(); i += 8) {
-                            uint64_t val = 0;
-                            for (int b = 7; b >= 0; --b) val = (val << 8) | stackTop[i + b];
-                            if (val >= 0xffffff8000000000ULL) {
-                                std::string sym = m_resolver.resolveAddress(val);
-                                spdlog::info("[SMC]   SP+{:+03d} [0x{:016x}] -> 0x{:016x} [{}]",
-                                    static_cast<int>(i), sp + i, val, sym);
-                            }
+                    std::string strX0 = "";
+                    if (stepX0 >= 0xffffff8000000000ULL) {
+                        auto strMem = gdb.readMemory(stepX0, 64);
+                        if (!strMem.empty() && std::isprint(strMem[0])) {
+                            strX0 = std::string(reinterpret_cast<char*>(strMem.data()), strnlen(reinterpret_cast<char*>(strMem.data()), 64));
                         }
                     }
+
+                    spdlog::info("[Phase 6.9 Step {:02d}] PC=0x{:016x} ({}) X0=0x{:x} {} X1=0x{:x} X2=0x{:x}",
+                                 step, stepPc, m_resolver.resolveAddress(stepPc), stepX0, strX0.empty() ? "" : fmt::format("[\"{}\"]", strX0), stepX1, stepX2);
                 }
             }
+
+
 
 
 
@@ -531,6 +627,47 @@ void SmcInterceptorWorker::run() {
             gdb.readRegister(GdbRspClient::REG_X0 + 3, post_x3);
             spdlog::info("[SMC]   Post-step Native Register Return: X0=0x{:016x} (dec {:d}) X1=0x{:016x} X2=0x{:016x} X3=0x{:016x}",
                 post_x0, static_cast<int64_t>(post_x0), post_x1, post_x2, post_x3);
+
+            if (req.id.raw == 0x84000009ULL) {
+                uint64_t fp = 0;
+                gdb.readRegister(GdbRspClient::REG_X0 + 29, fp); // X29 = FP
+                spdlog::info("[Phase 6.9 StackUnwind] === AAPCS64 Stack Frame Unwind (Initial FP=0x{:016x}) ===", fp);
+
+                for (int frame = 1; frame <= 16 && fp >= 0xffffff8000000000ULL; ++frame) {
+                    auto fpMem = gdb.readMemory(fp, 16);
+                    if (fpMem.size() < 16) break;
+
+                    uint64_t nextFp = 0, frameLr = 0;
+                    for (int i = 7; i >= 0; --i) nextFp = (nextFp << 8) | fpMem[i];
+                    for (int i = 15; i >= 8; --i) frameLr = (frameLr << 8) | fpMem[i];
+
+                    spdlog::info("[Phase 6.9 StackUnwind] Frame {:02d}: FP=0x{:016x} LR=0x{:016x} ({})",
+                                 frame, fp, frameLr, m_resolver.resolveAddress(frameLr));
+                    fp = nextFp;
+                }
+
+                // Disassemble qcom_boot_secondary() after SCM warm-boot return (0xffffff800a46ab00..0a46ab80)
+                spdlog::info("[Phase 6.9 Disasm] === Disassembling qcom_boot_secondary() after SCM warm-boot return ===");
+                auto postScmMem = gdb.readMemory(0xffffff800a46ab00ULL, 128);
+                if (!postScmMem.empty()) {
+                    for (size_t i = 0; i + 3 < postScmMem.size(); i += 4) {
+                        uint64_t insnAddr = 0xffffff800a46ab00ULL + i;
+                        uint32_t insn = static_cast<uint32_t>(postScmMem[i])
+                                      | (static_cast<uint32_t>(postScmMem[i+1]) << 8)
+                                      | (static_cast<uint32_t>(postScmMem[i+2]) << 16)
+                                      | (static_cast<uint32_t>(postScmMem[i+3]) << 24);
+                        spdlog::info("[Phase 6.9 Disasm]   0x{:016x}: 0x{:08x}", insnAddr, insn);
+                    }
+                }
+
+            }
+
+
+
+
+
+
+
 
             // Phase 6.7C: Deep caller instruction stream disassembly around LR
             if (lr >= 0xffffff8000000000ULL) {
