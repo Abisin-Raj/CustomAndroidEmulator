@@ -699,6 +699,12 @@ void SmcInterceptorWorker::run() {
 
 
         } else {
+            // Apply register translation (e.g. MPIDR translation X1: 0x100 -> 0x1) before native QEMU step
+            if (result.x1 != x1) {
+                spdlog::info("[PSCI] Applying MPIDR translation to X1 before native QEMU step: 0x{:x} -> 0x{:x}", x1, result.x1);
+                gdb.writeRegister(GdbRspClient::REG_X0 + 1, result.x1);
+            }
+
             spdlog::info("[SMC] Passthrough: {} (Unhandled) → stepping natively for QEMU processing (X0_before=0x{:x})",
                 req.id.toString(), x0);
             // Temporarily remove breakpoint, single-step the instruction natively via QEMU, then re-arm

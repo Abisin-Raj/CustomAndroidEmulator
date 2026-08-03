@@ -111,6 +111,7 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
     if (req.id.raw == 0x8400000AULL) {
         uint32_t probeId = static_cast<uint32_t>(x1 & 0xFFFFFFFF);
         bool supported = (probeId == 0x84000000 ||   // PSCI_VERSION
+                          probeId == 0x80000000 ||   // SMCCC_VERSION
                           probeId == 0xC4000003 ||   // PSCI_CPU_ON (64-bit)
                           probeId == 0x84000003 ||   // PSCI_CPU_ON (32-bit)
                           probeId == 0x84000002 ||   // PSCI_CPU_OFF
