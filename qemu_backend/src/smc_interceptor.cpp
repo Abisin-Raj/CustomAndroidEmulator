@@ -126,23 +126,14 @@ void SmcInterceptorWorker::run() {
         uint64_t pc = 0;
         if (gdb.readRegister(GdbRspClient::REG_PC, pc)) {
             if (pc >= 0xffffff8000000000ULL) {
-                spdlog::info("[SMC] Guest MMU confirmed active. CPU executing in virtual space at PC=0x{:016x}", pc);
                 mmuEnabled = true;
-                
-                // Scan memory for all smc instructions now that MMU translation is active
-                uint64_t scanStart = m_resolver.findSymbolAddress("_text");
-                uint64_t scanSize = 16 * 1024 * 1024; // 16MB
-                if (scanStart == 0) {
-                    scanStart = m_functionAddr;
-                    scanSize = SMC_SCAN_BYTES;
-                    spdlog::warn("[SMC] _text symbol not resolved. Falling back to scan from function base.");
-                }
-                auto foundAddrs = findSmcInstructions(gdb, scanStart, scanSize);
-                if (foundAddrs.empty()) {
-                    foundAddrs.push_back(m_functionAddr + 12);
-                    spdlog::warn("[SMC] Memory scan failed. Falling back to static address: 0x{:016x}", m_functionAddr + 12);
-                }
-                smcAddrs = foundAddrs;
+                // Target ONLY verified __arm_smccc_smc and __arm_smccc_hvc wrappers
+                std::vector<uint64_t> targetedAddrs = {
+                    0xffffff80080a02b4ULL, // __arm_smccc_smc (SMC vector entry point)
+                    0xffffff80080a02e0ULL  // __arm_smccc_hvc (HVC vector entry point)
+                };
+                smcAddrs = targetedAddrs;
+                break;
             } else {
                 spdlog::info("[SMC] Guest still in physical execution space (PC=0x{:016x}). Resuming...", pc);
                 gdb.sendContinue();
@@ -160,7 +151,7 @@ void SmcInterceptorWorker::run() {
         return;
     }
 
-    // --- 3. Set hardware breakpoints at all resolved SMC instructions ---
+    // --- 3. Set targeted hardware breakpoints ---
     for (uint64_t addr : smcAddrs) {
         if (!gdb.insertBreakpoint(addr)) {
             spdlog::error("[SMC] Failed to arm SMC breakpoint at 0x{:016x}", addr);
@@ -341,20 +332,23 @@ void SmcInterceptorWorker::run() {
                 }
             }
 
-            // Also log the stack top (first 3 quad-words) to see the smc_res pointer
+            // Also log the stack top (first 128 bytes) and unwind kernel VAs
             if (sp != 0) {
-                auto stackTop = gdb.readMemory(sp, 24);
-                if (stackTop.size() >= 8) {
-                    uint64_t ptr0 = 0, ptr1 = 0, ptr2 = 0;
-                    for (int i = 7; i >= 0; --i) ptr0 = (ptr0 << 8) | stackTop[i];
-                    if (stackTop.size() >= 16)
-                        for (int i = 15; i >= 8; --i) ptr1 = (ptr1 << 8) | stackTop[i];
-                    if (stackTop.size() >= 24)
-                        for (int i = 23; i >= 16; --i) ptr2 = (ptr2 << 8) | stackTop[i];
-                    spdlog::info("[SMC]   SP[0]=0x{:016x}  SP[8]=0x{:016x}  SP[16]=0x{:016x}",
-                        ptr0, ptr1, ptr2);
+                auto stackTop = gdb.readMemory(sp, 128);
+                if (!stackTop.empty()) {
+                    spdlog::info("[SMC] === Unwinding Stack Frames at SP=0x{:016x} ===", sp);
+                    for (size_t i = 0; i + 7 < stackTop.size(); i += 8) {
+                        uint64_t val = 0;
+                        for (int b = 7; b >= 0; --b) val = (val << 8) | stackTop[i + b];
+                        if (val >= 0xffffff8000000000ULL) {
+                            std::string sym = m_resolver.resolveAddress(val);
+                            spdlog::info("[SMC]   SP+{:+03d} [0x{:016x}] -> 0x{:016x} [{}]",
+                                static_cast<int>(i), sp + i, val, sym);
+                        }
+                    }
                 }
             }
+
             spdlog::info("[SMC] ============================================================");
         }
 
@@ -485,6 +479,43 @@ void SmcInterceptorWorker::run() {
 
             spdlog::info("[SMC] Emulated: {} → X0=0x{:x} handled={} PC now=0x{:016x}",
                 req.id.toString(), result.x0, result.handled, pc + 4);
+
+            // Phase 6.7D: Disassemble 256 bytes &3. unwind stack after SCM warm-boot/CPU-on calls.
+            uint32_t smcCmd = static_cast<uint32_t>(x0 & 0xFFFFFFFFULL);
+            if (smcCmd == 0x42000A01ULL || smcCmd == 0x82000101ULL || smcCmd == 0xC2000101ULL || smcCmd == 0x00000001ULL) {
+                uint64_t postPc = pc + 4;
+                spdlog::info("[SMC] === Phase 6.7D Post-SMC(0x{:08x}) Execution Stream (PC=0x{:016x}) ===", smcCmd, postPc);
+                auto postMem = gdb.readMemory(postPc, 256);
+                if (!postMem.empty()) {
+                    for (size_t i = 0; i + 3 < postMem.size(); i += 4) {
+                        uint64_t insnAddr = postPc + i;
+                        uint32_t insn = static_cast<uint32_t>(postMem[i])
+                                      | (static_cast<uint32_t>(postMem[i+1]) << 8)
+                                      | (static_cast<uint32_t>(postMem[i+2]) << 16)
+                                      | (static_cast<uint32_t>(postMem[i+3]) << 24);
+                        spdlog::info("[SMC]   0x{:016x}: 0x{:08x}", insnAddr, insn);
+                    }
+                }
+
+                if (sp != 0) {
+                    auto stackTop = gdb.readMemory(sp, 256);
+                    if (!stackTop.empty()) {
+                        spdlog::info("[SMC] === Unwinding Stack Frames at SP=0x{:016x} for 0x{:08x} ===", sp, smcCmd);
+                        for (size_t i = 0; i + 7 < stackTop.size(); i += 8) {
+                            uint64_t val = 0;
+                            for (int b = 7; b >= 0; --b) val = (val << 8) | stackTop[i + b];
+                            if (val >= 0xffffff8000000000ULL) {
+                                std::string sym = m_resolver.resolveAddress(val);
+                                spdlog::info("[SMC]   SP+{:+03d} [0x{:016x}] -> 0x{:016x} [{}]",
+                                    static_cast<int>(i), sp + i, val, sym);
+                            }
+                        }
+                    }
+                }
+            }
+
+
+
         } else {
             spdlog::info("[SMC] Passthrough: {} (Unhandled) → stepping natively for QEMU processing (X0_before=0x{:x})",
                 req.id.toString(), x0);

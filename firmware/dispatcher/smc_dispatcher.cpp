@@ -43,22 +43,18 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
 
     spdlog::debug("[SCM] Received {}", req.id.toString());
 
-    // Handle the special SCM v1 resume call (0x00000001)
+    // Handle the SCM v1 / status poll call (0x00000001)
     if (req.id.raw == 0x00000001ULL) {
-        if (x2 == 0x82000601ULL || x2 == 0xC2000601ULL) {
-            spdlog::info("[SCM] Handling SCM v1 resume (0x00000001) for availability query 0x{:08x}", x2);
-            SmcResult res;
-            res.x0 = SMCCC_RET_SUCCESS; // 0 (success)
-            res.x1 = 1;                 // 1 (available)
-            res.x2 = x2;                // Preserve target command
-            res.x3 = x3;                // Preserve original X3
-            res.handled = true;
-            return res;
-        } else {
-            spdlog::warn("[SCM] Unhandled target command 0x{:08x} on resume call (0x00000001)", x2);
-            return { SMCCC_RET_NOT_SUPPORTED, x1, x2, x3, false };
-        }
+        spdlog::info("[SCM] Handling SCM poll/status call 0x00000001: X1=0x{:x} X2=0x{:x}", x1, x2);
+        SmcResult res;
+        res.x0 = 0; // 0 = Ready/Done (X0=1. means. Busy, causing. b.eq, 0x540 loop)
+        res.x1 = 0;
+        res.x2 = x2;
+        res.x3 = x3;
+        res.handled = true;
+        return res;
     }
+
 
     // Handle SCM v1 boot/warm-boot SCM calls (0x82000101 / 0xC2000101)
     if (req.id.raw == 0x82000101ULL || req.id.raw == 0xC2000101ULL) {
@@ -76,13 +72,14 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
     if (req.id.raw == 0x42000A01ULL) {
         spdlog::info("[SCM] Handling SCM v2 warm-boot setting call 0x42000A01: flags=0x{:x} entry=0x{:x} len=0x{:x}", x1, x2, x3);
         SmcResult res;
-        res.x0 = SMCCC_RET_SUCCESS; // 0 (success)
-        res.x1 = 1;                 // 1 (success status for res.a0)
+        res.x0 = 1;                 // Qcom SCM v2: 1 = SUCCESS (kernel checks `cmp x0, #1; b.ne error`)
+        res.x1 = 1;                 // 1 (success status)
         res.x2 = x2;
         res.x3 = x3;
         res.handled = true;
         return res;
     }
+
 
 
     // Walk registered services and find a matching (owner, service) pair

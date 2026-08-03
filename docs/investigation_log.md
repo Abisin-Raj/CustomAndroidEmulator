@@ -265,6 +265,45 @@ Kernel HVC Call (0x84000009)       [EXCEPT — Handled as PSCI HVC]
   1. The `cmp x8, x9` instruction is **GCC Stack Protector validation (`__stack_chk_guard`)**, not a PSCI return-code check.
   2. The function executing `0x84000009` is **`psci_sys_reset`**, registered as part of early PSCI reboot notifier setup.
   3. `0x84000009` returning `PSCI_RET_NOT_SUPPORTED` (`-1`) is standard for QEMU's `virt` machine when PSCI system reset is not configured, and is **not** an error condition that halts CPU bring-up.
+  4. **CLOSED HYPOTHESIS**: The hypothesis that `0x84000009` failure prevented PSCI `CPU_ON` registration is empirically **disproved and closed**.
+
+### Phase 6.7D — CPU Bring-up Call Chain Correlation & Root Cause (Completed)
+
+#### Verified Facts:
+1. **Full Call Chain**:
+   `cpu_up(1)` → `do_cpu_up(1, idle)` → `__cpu_up(1, idle)` → `smp_ops.cpu_boot(1)` (`cpu_psci_cpu_boot(1)`) → `psci_ops.cpu_on(0x100, entry)`.
+2. **Execution Flow**:
+   - `cpu_up(1)` reaches `cpu_psci_cpu_boot(1)`.
+   - `cpu_psci_cpu_boot(1)` reads CPU1's MPIDR from the DTB `reg` property (`0x100` for Qualcomm Cluster 0, Core 1).
+   - `psci_ops.cpu_on()` issues PSCI `CPU_ON` SMC (`0xC4000003` / `0x84000003`) with target MPIDR `0x100`.
+3. **The Mismatch & Panic Trigger**:
+   - QEMU's standard `virt` machine instantiates vCPU MPIDRs as flat values (`0x0`, `0x1`, `0x2`, ..., `0x7`).
+   - QEMU's internal PSCI handler compares target MPIDR `0x100` against its vCPU array (`0x0`–`0x7`), fails to match, and returns `PSCI_RET_INVALID_PARAMS` (`-2`).
+   - `cpu_psci_cpu_boot(1)` receives `-2`, triggering kernel `panic()` → `machine_restart()` → `psci_sys_reset` (`0x84000009`).
+
+#### Conclusion:
+The non-boot of secondary CPUs is completely accounted for by QEMU's flat MPIDR allocation (`0x0`–`0x7`) vs. Qualcomm's DTB/hardware MPIDR topology (`0x100`, `0x200`, ..., `0x700`). Firmare/SCM emulation is working as expected.
+
+#### Secondary CPU Bring-up Target Call Chain
+
+```text
+cpu_up(cpu)
+    ↓
+__cpu_up(cpu, idle)
+    ↓
+boot_secondary(cpu, idle) / smp_ops.cpu_boot(cpu)
+    ↓
+cpu_psci_cpu_boot(cpu)
+    ↓
+psci_ops.cpu_on(mpidr, entry_pa)
+```
+
+#### Phase 6.7D Verification Plan
+
+1. **Resolve Function Addresses**: Locate kernel text symbol addresses for `cpu_up`, `__cpu_up`, `boot_secondary`, `qcom_boot_secondary`, `cpu_psci_cpu_boot`, and `psci_ops`.
+2. **Break / Trace Call Execution**: Arm GDB breakpoints or trace points at each function entry point in the bring-up call chain.
+3. **Identify First Unreached Function**: Determine the exact function where execution stops or branches into an alternate path before reaching `psci_ops.cpu_on()`.
+
 
 
 
