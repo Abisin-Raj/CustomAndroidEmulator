@@ -86,6 +86,16 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
     // We handle them here to let psci_probe() succeed.
     // -----------------------------------------------------------------------
 
+    // SMCCC_VERSION (0x80000000): return SMCCC 1.1
+    if (req.id.raw == 0x80000000ULL) {
+        spdlog::info("[SMCCC] SMCCC_VERSION: returning 0x00010001 (SMCCC 1.1)");
+        SmcResult res;
+        res.x0 = 0x00010001;  // SMCCC 1.1
+        res.x1 = 0; res.x2 = 0; res.x3 = 0;
+        res.handled = true;
+        return res;
+    }
+
     // PSCI_VERSION (0x84000000): return PSCI 1.1
     if (req.id.raw == 0x84000000ULL) {
         spdlog::info("[PSCI] PSCI_VERSION: returning 0x00010001 (PSCI 1.1)");

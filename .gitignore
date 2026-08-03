@@ -6,6 +6,7 @@
 # Build system
 # ----------------------------------------------------------------------------
 build/
+build_ninja/
 CMakeFiles/
 CMakeCache.txt
 CMakeConfigureLog.yaml
