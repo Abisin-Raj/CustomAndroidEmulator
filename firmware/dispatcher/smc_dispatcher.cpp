@@ -47,14 +47,13 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
     if (req.id.raw == 0x00000001ULL) {
         spdlog::info("[SCM] Handling SCM poll/status call 0x00000001: X1=0x{:x} X2=0x{:x}", x1, x2);
         SmcResult res;
-        res.x0 = 0; // 0 = Ready/Done (X0=1. means. Busy, causing. b.eq, 0x540 loop)
+        res.x0 = 0; // 0 = Ready/Done
         res.x1 = 0;
         res.x2 = x2;
         res.x3 = x3;
         res.handled = true;
         return res;
     }
-
 
     // Handle SCM v1 boot/warm-boot SCM calls (0x82000101 / 0xC2000101)
     if (req.id.raw == 0x82000101ULL || req.id.raw == 0xC2000101ULL) {
@@ -69,18 +68,66 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
     }
 
     // Handle SCM v2 boot/warm-boot setting call (0x42000A01)
+    // qcom_boot_secondary() uses: cbnz w0, error — so W0=0 means success.
     if (req.id.raw == 0x42000A01ULL) {
         spdlog::info("[SCM] Handling SCM v2 warm-boot setting call 0x42000A01: flags=0x{:x} entry=0x{:x} len=0x{:x}", x1, x2, x3);
         SmcResult res;
-        res.x0 = 1;                 // Qcom SCM v2: 1 = SUCCESS (kernel checks `cmp x0, #1; b.ne error`)
-        res.x1 = 1;                 // 1 (success status)
-        res.x2 = x2;
-        res.x3 = x3;
+        res.x0 = 0;   // 0 = SUCCESS (cbnz w0 passes when W0==0)
+        res.x1 = 0;
+        res.x2 = 0;
+        res.x3 = 0;
         res.handled = true;
         return res;
     }
 
-    // Handle PSCI CPU_ON calls (0xC4000003 / 0x84000003) — logged by dispatcher, passed to QEMU natively
+    // -----------------------------------------------------------------------
+    // PSCI basic handlers — QEMU virt with psci=on handles these natively,
+    // but our passthrough path currently returns -1 before QEMU processes them.
+    // We handle them here to let psci_probe() succeed.
+    // -----------------------------------------------------------------------
+
+    // PSCI_VERSION (0x84000000): return PSCI 1.1
+    if (req.id.raw == 0x84000000ULL) {
+        spdlog::info("[PSCI] PSCI_VERSION: returning 0x00010001 (PSCI 1.1)");
+        SmcResult res;
+        res.x0 = 0x00010001;  // PSCI 1.1
+        res.x1 = 0; res.x2 = 0; res.x3 = 0;
+        res.handled = true;
+        return res;
+    }
+
+    // PSCI_FEATURES (0x8400000A): feature probe
+    // X1 holds the function ID being probed. Return 0 for known IDs, NOT_SUPPORTED (-2) otherwise.
+    if (req.id.raw == 0x8400000AULL) {
+        uint32_t probeId = static_cast<uint32_t>(x1 & 0xFFFFFFFF);
+        bool supported = (probeId == 0x84000000 ||   // PSCI_VERSION
+                          probeId == 0xC4000003 ||   // PSCI_CPU_ON (64-bit)
+                          probeId == 0x84000003 ||   // PSCI_CPU_ON (32-bit)
+                          probeId == 0x84000002 ||   // PSCI_CPU_OFF
+                          probeId == 0xC4000001 ||   // PSCI_CPU_SUSPEND (64-bit)
+                          probeId == 0x84000009 ||   // PSCI_SYSTEM_RESET
+                          probeId == 0x8400000E);    // PSCI_SYSTEM_RESET2
+        spdlog::info("[PSCI] PSCI_FEATURES probe for 0x{:08x}: {}",
+                     probeId, supported ? "SUPPORTED(0)" : "NOT_SUPPORTED(-2)");
+        SmcResult res;
+        res.x0 = supported ? 0ULL : static_cast<uint64_t>(-2LL);
+        res.x1 = 0; res.x2 = 0; res.x3 = 0;
+        res.handled = true;
+        return res;
+    }
+
+    // PSCI_CPU_SUSPEND (0x84000006 / 0xC4000006):
+    // Return NOT_SUPPORTED — safe for SMP bring-up; kernel continues without WFI-based suspend.
+    if (req.id.raw == 0x84000006ULL || req.id.raw == 0xC4000006ULL) {
+        spdlog::info("[PSCI] PSCI_CPU_SUSPEND (0x{:08x}): returning NOT_SUPPORTED", req.id.raw);
+        SmcResult res;
+        res.x0 = static_cast<uint64_t>(-2LL);   // PSCI_RET_NOT_SUPPORTED
+        res.x1 = 0; res.x2 = 0; res.x3 = 0;
+        res.handled = true;
+        return res;
+    }
+
+    // Handle PSCI CPU_ON calls (0xC4000003 / 0x84000003) — MPIDR translation + pass to QEMU native PSCI
     if (req.id.raw == 0xC4000003ULL || req.id.raw == 0x84000003ULL) {
         uint64_t guestMpidr = x1;
         uint64_t qemuMpidr = (guestMpidr >= 0x100) ? (guestMpidr >> 8) : guestMpidr;
@@ -90,17 +137,13 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
         return { SMCCC_RET_SUCCESS, qemuMpidr, x2, x3, false };
     }
 
-
-
-
-
     // Walk registered services and find a matching (owner, service) pair
     for (auto& svc : m_services) {
         if (svc->owner()   == req.id.owner()   &&
             svc->service() == req.id.service()) {
             SmcResult result = svc->handle(req);
             if (result.handled) {
-                spdlog::debug("[SCM] Handled — Cmd=0x{:02x} → X0=0x{:x}",
+                spdlog::debug("[SCM] Handled — Cmd=0x{:02x} -> X0=0x{:x}",
                     static_cast<int>(req.id.command()), result.x0);
                 return result;
             }

@@ -1,8 +1,8 @@
-add_executable(run_test_runner
+add_executable(execute_test_runner
     src/test_main.cpp
 )
 
-target_link_libraries(run_test_runner PRIVATE
+target_link_libraries(execute_test_runner PRIVATE
     core
     models
     image_parser
@@ -19,5 +19,8 @@ target_link_libraries(run_test_runner PRIVATE
     kernel_analysis
     firmware
     behavior_exploration_tool
+    spdlog::spdlog
+    Qt6::Core
+    Qt6::Network
 )
 

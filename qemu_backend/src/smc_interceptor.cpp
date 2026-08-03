@@ -95,7 +95,10 @@ void SmcInterceptorWorker::run() {
         emit interceptorStopped();
         return;
     }
-    // Patch physical memory at startup (0x8090a25c) before releasing guest from -S pause
+    // Patch BOTH inline smc #0 opcodes (physical) before releasing guest from -S pause.
+    // qcom_scm_set_warm_boot_addr has two smc #0 instructions:
+    //   0x8090a25c  (= 0xffffff800888a25c virtual) — the FIRST smc, fires during PSCI feature probes
+    //   0x8090a31c  (= 0xffffff800888a31c virtual) — the SECOND smc, fires during warm-boot addr set
     uint32_t nopOp = 0xd503201f;
     std::vector<uint8_t> nopBytes = {
         static_cast<uint8_t>(nopOp & 0xFF),
@@ -103,13 +106,19 @@ void SmcInterceptorWorker::run() {
         static_cast<uint8_t>((nopOp >> 16) & 0xFF),
         static_cast<uint8_t>((nopOp >> 24) & 0xFF)
     };
-    gdb.writeMemory(0x8090a25cULL, nopBytes);
-    gdb.writeMemory(0x8090a26cULL, nopBytes);
-    spdlog::info("[SMC] Startup RAM NOP patch applied at 0x8090a25c/6c (t=0.0s) to prevent early EL1 smc traps!");
+    gdb.writeMemory(0x8090a25cULL, nopBytes);   // first  inline smc #0
+    gdb.writeMemory(0x8090a26cULL, nopBytes);   // guard  (next instruction)
+    gdb.writeMemory(0x8090a31cULL, nopBytes);   // second inline smc #0
+    gdb.writeMemory(0x8090a32cULL, nopBytes);   // guard  (next instruction)
+    spdlog::info("[SMC] Startup RAM NOP patches applied at 0x8090a25c + 0x8090a31c (t=0.0s)!");
 
-    // Arm hardware breakpoint at kernel _text entry (0xffffff8008000000) BEFORE releasing guest
-    gdb.insertBreakpoint(0xffffff8008000000ULL);
-    spdlog::info("[SMC] Armed initial hardware breakpoint at _text (0xffffff8008000000) at t=0.0s!");
+
+    // Arm hardware breakpoint at physical kernel _text entry (0x80080000) at t=0.0s BEFORE releasing guest
+    gdb.insertBreakpoint(0x80080000ULL);
+    spdlog::info("[SMC] Armed initial hardware breakpoint at physical _text (0x80080000) at t=0.0s!");
+
+
+
 
     // Release the guest from -S pause
 
@@ -143,15 +152,42 @@ void SmcInterceptorWorker::run() {
 
         uint64_t pc = 0;
         if (gdb.readRegister(GdbRspClient::REG_PC, pc)) {
+            // --- Phase 6.9: Physical _text entry (0x80080000) before MMU enabled ---
+            if (pc == 0x80080000ULL) {
+                spdlog::info("[Phase 6.9 Step 1] Hit physical _text entry (0x80080000)! Patching RAM and arming psci_ops.cpu_on breakpoint...");
+                uint32_t nopOp = 0xd503201f;
+                std::vector<uint8_t> nopBytes = {
+                    static_cast<uint8_t>(nopOp & 0xFF),
+                    static_cast<uint8_t>((nopOp >> 8) & 0xFF),
+                    static_cast<uint8_t>((nopOp >> 16) & 0xFF),
+                    static_cast<uint8_t>((nopOp >> 24) & 0xFF)
+                };
+                gdb.writeMemory(0x8090a25cULL, nopBytes);
+                gdb.writeMemory(0x8090a26cULL, nopBytes);
+                gdb.writeMemory(0x8090a31cULL, nopBytes);
+                gdb.writeMemory(0x8090a32cULL, nopBytes);
+                spdlog::info("[Phase 6.9 Step 1] Patched physical 0x8090a25c + 0x8090a31c to NOP!");
+                gdb.insertBreakpoint(0xffffff800a46ab18ULL);
+                spdlog::info("[Phase 6.9 Step 1] Armed breakpoint at 0xffffff800a46ab18 (bl psci_ops.cpu_on). Resuming guest...");
+                gdb.sendContinue();
+                retries = 0;  // reset so loop continues waiting for MMU
+                continue;
+            }
+
             if (pc >= 0xffffff8000000000ULL) {
+
                 mmuEnabled = true;
-                // Target entry points: kernel _text entry, SMC wrapper, HVC wrapper
+                // Target entry points: kernel _text entry, SMC wrapper, HVC wrapper, psci_ops.cpu_on call site
                 std::vector<uint64_t> targetedAddrs = {
                     0xffffff8008000000ULL,         // _text (kernel entry)
                     0xffffff80080a02b4ULL,         // __arm_smccc_smc
-                    0xffffff80080a02e0ULL          // __arm_smccc_hvc
+                    0xffffff80080a02e0ULL,         // __arm_smccc_hvc
+                    0xffffff800a46ab18ULL          // bl psci_ops.cpu_on in qcom_boot_secondary
                 };
                 smcAddrs = targetedAddrs;
+
+
+
 
                 // Patch inline smc #0 instructions (0xd4000003) to NOP (0xd503201f) to prevent EL1 Undefined Instruction traps in QEMU virt
                 uint32_t nopOp = 0xd503201f;
@@ -163,7 +199,10 @@ void SmcInterceptorWorker::run() {
                 };
                 gdb.writeMemory(0xffffff800888a25cULL, nopBytes);
                 gdb.writeMemory(0xffffff800888a26cULL, nopBytes);
-                spdlog::info("[SMC] Patched inline smc #0 opcodes at 0xffffff800888a25c and 0x888a26c to NOP");
+                gdb.writeMemory(0xffffff800888a31cULL, nopBytes);
+                gdb.writeMemory(0xffffff800888a32cULL, nopBytes);
+                spdlog::info("[SMC] Patched virtual 0x888a25c + 0x888a31c inline smc #0 to NOP");
+
 
                 break;
 
@@ -294,9 +333,9 @@ void SmcInterceptorWorker::run() {
         gdb.readRegister(GdbRspClient::REG_X0 + 5, x5);
         gdb.readRegister(GdbRspClient::REG_X0 + 6, x6);
 
-        // Phase 6.9: Intercept kernel _text entry (0xffffff8008000000) and patch inline smc #0 instructions to NOP before driver init
-        if (pc == 0xffffff8008000000ULL) {
-            spdlog::info("[Phase 6.9 Tracing] Hit kernel _text entry (0xffffff8008000000)! Applying NOP patch to inline smc #0 opcodes in virtual memory...");
+        // Phase 6.9: Intercept physical kernel _text entry (0x80080000) -> patch inline smc #0 to NOP and arm 0xffffff800a46ab20
+        if (pc == 0x80080000ULL || pc == 0xffffff8008000000ULL) {
+            spdlog::info("[Phase 6.9 Step 1] Hit kernel _text entry (PC=0x{:016x})! Applying NOP patch to physical 0x8090a31c...", pc);
             uint32_t nopOp = 0xd503201f;
             std::vector<uint8_t> nopBytes = {
                 static_cast<uint8_t>(nopOp & 0xFF),
@@ -304,42 +343,72 @@ void SmcInterceptorWorker::run() {
                 static_cast<uint8_t>((nopOp >> 16) & 0xFF),
                 static_cast<uint8_t>((nopOp >> 24) & 0xFF)
             };
-            gdb.writeMemory(0xffffff800888a25cULL, nopBytes);
-            gdb.writeMemory(0xffffff800888a26cULL, nopBytes);
-            spdlog::info("[Phase 6.9 Tracing] Patched 0xffffff800888a25c and 0x888a26c to NOP in kernel virtual memory!");
+            // Patch both physical RAM (before MMU) and virtual RAM (after MMU)
+            gdb.writeMemory(0x8090a31cULL, nopBytes);
+            gdb.writeMemory(0x8090a32cULL, nopBytes);
+            spdlog::info("[Phase 6.9 Step 1] Patched physical 0x8090a31c/32c to NOP!");
+
+            // Arm virtual breakpoint at psci_ops.cpu_on call site (will fire after MMU enabled)
+            gdb.insertBreakpoint(0xffffff800a46ab18ULL);
+            spdlog::info("[Phase 6.9 Step 1] Armed hardware breakpoint at 0xffffff800a46ab18 (bl psci_ops.cpu_on). Resuming guest...");
             gdb.sendContinue();
             continue;
         }
 
-        // Phase 6.9: Intercept qcom_scm_set_warm_boot_addr entry (0xffffff800888a240..254), return 0 to LR, and step-trace qcom_boot_secondary()
 
-        if (pc >= 0xffffff800888a240ULL && pc <= 0xffffff800888a254ULL) {
-            uint64_t lr = 0;
-            gdb.readRegister(GdbRspClient::REG_X30, lr);
-            spdlog::info("[Phase 6.9 Tracing] Hit qcom_scm_set_warm_boot_addr entry (PC=0x{:016x})! Return LR=0x{:016x} ({})",
-                         pc, lr, m_resolver.resolveAddress(lr));
+        // Phase 6.9: Intercept bl psci_ops.cpu_on (0xffffff800a46ab18)
+        if (pc == 0xffffff800a46ab18ULL) {
+            spdlog::info("[Phase 6.9 Step 2 & 3] CONFIRMED: Execution reached 0xffffff800a46ab18 (bl psci_ops.cpu_on)!");
+            spdlog::info("[Phase 6.9 Step 3] Arguments at psci_ops.cpu_on call site: X0=0x{:016x} X1 (Target CPU/MPIDR)=0x{:x} X2 (Entry PA)=0x{:016x}",
+                         x0, x1, x2);
 
-            // Return 0 (success) directly to qcom_boot_secondary
-            gdb.writeRegister(GdbRspClient::REG_X0, 0);
-            gdb.writeRegister(GdbRspClient::REG_PC, lr);
-            spdlog::info("[Phase 6.9 Tracing] Bypassed SCM call. PC redirected to LR=0x{:016x}. Single-stepping qcom_boot_secondary()...", lr);
-
-            // Single-step 40 instructions in qcom_boot_secondary() to trace decision logic & MMIO accesses
-            for (int step = 1; step <= 40; ++step) {
+            // Single-step into psci_ops.cpu_on until HVC/SMC instruction
+            for (int step = 1; step <= 25; ++step) {
                 gdb.sendStep();
-                uint64_t stepPc = 0, stepX0 = 0, stepX1 = 0, stepX2 = 0, stepX3 = 0;
+                uint64_t stepPc = 0, stepX0 = 0, stepX1 = 0, stepX2 = 0;
                 gdb.readRegister(GdbRspClient::REG_PC, stepPc);
                 gdb.readRegister(GdbRspClient::REG_X0, stepX0);
                 gdb.readRegister(GdbRspClient::REG_X0 + 1, stepX1);
                 gdb.readRegister(GdbRspClient::REG_X0 + 2, stepX2);
-                gdb.readRegister(GdbRspClient::REG_X0 + 3, stepX3);
-                spdlog::info("[Phase 6.9 Step {:02d}] PC=0x{:016x} ({}) X0=0x{:x} X1=0x{:x} X2=0x{:x} X3=0x{:x}",
-                             step, stepPc, m_resolver.resolveAddress(stepPc), stepX0, stepX1, stepX2, stepX3);
+
+                spdlog::info("[Phase 6.9 StepTrace {:02d}] PC=0x{:016x} ({}) X0=0x{:x} X1=0x{:x} X2=0x{:x}",
+                             step, stepPc, m_resolver.resolveAddress(stepPc), stepX0, stepX1, stepX2);
+
+                auto insnMem = gdb.readMemory(stepPc, 4);
+                if (insnMem.size() == 4) {
+                    uint32_t opcode = static_cast<uint32_t>(insnMem[0])
+                                    | (static_cast<uint32_t>(insnMem[1]) << 8)
+                                    | (static_cast<uint32_t>(insnMem[2]) << 16)
+                                    | (static_cast<uint32_t>(insnMem[3]) << 24);
+                    if (opcode == 0xd4000002 || opcode == 0xd4000003) { // HVC #0 or SMC #0
+                        spdlog::info("[Phase 6.9 Step 3] About to execute PSCI_CPU_ON HVC/SMC (Opcode=0x{:08x}): X0 (FnID)=0x{:08x} X1 (Target MPIDR)=0x{:x} X2 (Entry PA)=0x{:016x}",
+                                     opcode, stepX0, stepX1, stepX2);
+
+                        // 4. Single step over the HVC/SMC instruction to capture return value
+                        gdb.sendStep();
+                        uint64_t retX0 = 0;
+                        gdb.readRegister(GdbRspClient::REG_X0, retX0);
+                        spdlog::info("[Phase 6.9 Step 4] PSCI_CPU_ON Return Value: X0=0x{:016x} (dec {:d})",
+                                     retX0, static_cast<int64_t>(retX0));
+
+                        // Query vCPU 1 (CPU1) observer state
+                        gdb.selectThread("p01.02");
+                        uint64_t cpu1_pc = 0, cpu1_pstate = 0;
+                        gdb.readRegister(GdbRspClient::REG_PC, cpu1_pc);
+                        gdb.readRegister(GdbRspClient::REG_PSTATE, cpu1_pstate);
+                        spdlog::info("[Phase 6.9 Step 4] vCPU 1 (CPU1) Observer State after PSCI_CPU_ON: PC=0x{:016x} ({}) PSTATE=0x{:08x}",
+                                     cpu1_pc, m_resolver.resolveAddress(cpu1_pc), cpu1_pstate);
+                        if (!threadId.isEmpty()) gdb.selectThread(threadId);
+                        break;
+                    }
+                }
             }
 
             gdb.sendContinue();
             continue;
         }
+
+
 
 
         // Read LR (X30), SP and X19 for call-chain and result mapping tracing
@@ -478,8 +547,25 @@ void SmcInterceptorWorker::run() {
             spdlog::info("[SMC] ===============================================");
         }
 
+        // Phase 6.10: Intercept qcom_scm_set_warm_boot_addr (SMC ID 0x42000A01)
+        // QEMU virt has no EL3/SCM firmware — it returns -1, causing qcom_boot_secondary() to panic.
+        // We force W0=0 (SUCCESS) and redirect PC to LR so the cbnz check at 0xa46aafc passes,
+        // allowing execution to continue to the bl psci_ops.cpu_on at 0xffffff800a46ab18.
+        if ((x0 & 0xFFFFFFFF) == 0x42000A01UL) {
+            uint64_t lr = 0;
+            gdb.readRegister(GdbRspClient::REG_X30, lr);
+            spdlog::info("[Phase 6.10 Step 1] Intercepted qcom_scm_set_warm_boot_addr (X0=0x{:08x}) at PC=0x{:016x} LR=0x{:016x}",
+                         x0, pc, lr);
+            spdlog::info("[Phase 6.10 Step 1] Setting W0=0 (SUCCESS) and redirecting PC to LR=0x{:016x}", lr);
+            gdb.writeRegister(GdbRspClient::REG_X0, 0);
+            gdb.writeRegister(GdbRspClient::REG_PC, lr);
+            gdb.sendContinue();
+            continue;
+        }
+
         // --- Dispatch through firmware compatibility layer ---
         firmware::SmcResult result = m_dispatcher.dispatch(x0, x1, x2, x3, x4, x5, x6);
+
 
         // Keep a copy of dispatcher's original return values
         firmware::SmcResult dispatcherResult = result;
