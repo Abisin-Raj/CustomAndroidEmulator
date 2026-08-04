@@ -49,14 +49,17 @@ bool QemuCpuWakeBackend::wakeCpu(uint64_t mpidr, uint64_t entryPa, uint64_t cont
     m_gdb->writeRegister(GdbRspClient::REG_PSTATE, 0x3c5);          // EL1h mode with DAIF masked
     m_gdb->writeRegister(GdbRspClient::REG_X0, contextId);           // X0 = context ID (X3)
 
-    spdlog::info("[QemuCpuWakeBackend Phase 6.15C] Target vCPU State Programmed! PC=0x{:016x} (aligned from 0x{:016x}) PSTATE=0x3c5 X0=0x{:x}",
+    spdlog::info("[QemuCpuWakeBackend Phase 6.16] Target vCPU State Programmed! PC=0x{:016x} (aligned from 0x{:016x}) PSTATE=0x3c5 X0=0x{:x}",
                  aligned_entry, entry_pa, contextId);
 
-    // 3. Send QEMU execution wake signal to target vCPU
-    spdlog::info("[QemuCpuWakeBackend Phase 6.15C] Sending QEMU TCG execution wake signal to vCPU index {} ({})",
-                 targetVcpuIdx, targetThreadId.toStdString());
-    m_gdb->sendMonitorCommand(QString("cpu %1").arg(targetVcpuIdx));
-    m_gdb->sendMonitorCommand("cont");
+    // 3. Invoke candidate HMP monitor wake command in QEMU
+    QString hmpCmd = QString("compat-wake-cpu %1 0x%2 0x%3")
+                        .arg(targetVcpuIdx)
+                        .arg(aligned_entry, 0, 16)
+                        .arg(contextId, 0, 16);
+    spdlog::info("[QemuCpuWakeBackend Phase 6.16] Sending HMP candidate wake command to QEMU: '{}'", hmpCmd.toStdString());
+    QString hmpResp = m_gdb->sendMonitorCommand(hmpCmd);
+    spdlog::info("[QemuCpuWakeBackend Phase 6.16] QEMU HMP Wake Response: '{}'", hmpResp.trimmed().toStdString());
 
     // 4. Reselect calling vCPU thread (vCPU0)
     m_gdb->selectThread("p01.01");

@@ -10,7 +10,7 @@ QemuConfigParameters VmConfigurationBuilder::build(
     const std::string& tempRamdiskPath
 ) {
     QemuConfigParameters params;
-    params.cpu       = profile.cpu + ",psci-conduit=2";
+    params.cpu       = profile.cpu + ",psci-conduit=1";
     params.machine   = profile.machine;
     params.memory    = profile.memory;
     params.nographic = profile.nographic;
