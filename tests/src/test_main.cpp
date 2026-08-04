@@ -474,6 +474,10 @@ void testKernelAnalysis() {
     std::filesystem::path mapPath = "test_System.map";
     std::ofstream out(mapPath);
     out << "ffffff8008080000 T _text\n";
+    out << "ffffff8008090000 T secondary_holding_pen\n";
+    out << "ffffff8008090020 T secondary_entry\n";
+    out << "ffffff8008090100 T __secondary_switched\n";
+    out << "ffffff8008090200 T secondary_start_kernel\n";
     out << "ffffff800888a250 t qcom_scm_set_warm_boot_addr\n";
     out << "ffffff800888a300 t other_func\n";
     out.close();
@@ -483,14 +487,18 @@ void testKernelAnalysis() {
     std::filesystem::remove(mapPath);
 
     TEST_ASSERT(success, "System.map parsing should succeed");
-    TEST_ASSERT(resolver.getSymbolCount() == 3, "Symbol count must equal 3");
+    TEST_ASSERT(resolver.getSymbolCount() == 7, "Symbol count must equal 7");
 
     // Exact matches
     TEST_ASSERT(resolver.resolveAddress(0xffffff8008080000) == "_text+0x0", "Should resolve exact _text start");
+    TEST_ASSERT(resolver.resolveAddress(0xffffff8008090000) == "secondary_holding_pen+0x0", "Should resolve exact secondary_holding_pen start");
+    TEST_ASSERT(resolver.resolveAddress(0xffffff8008090020) == "secondary_entry+0x0", "Should resolve exact secondary_entry start");
+    TEST_ASSERT(resolver.resolveAddress(0xffffff8008090200) == "secondary_start_kernel+0x0", "Should resolve exact secondary_start_kernel start");
     TEST_ASSERT(resolver.resolveAddress(0xffffff800888a250) == "qcom_scm_set_warm_boot_addr+0x0", "Should resolve exact function start");
 
     // Offsets
     TEST_ASSERT(resolver.resolveAddress(0xffffff8008080010) == "_text+0x10", "Should resolve offset from _text");
+    TEST_ASSERT(resolver.resolveAddress(0xffffff8008090034) == "secondary_entry+0x14", "Should resolve offset inside secondary_entry");
     TEST_ASSERT(resolver.resolveAddress(0xffffff800888a25c) == "qcom_scm_set_warm_boot_addr+0xc", "Should resolve offset inside SCM warm boot call");
 
     // Address before first symbol

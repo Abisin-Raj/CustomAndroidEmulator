@@ -396,11 +396,11 @@ void SmcInterceptorWorker::run() {
 
             gdb.sendContinue();
 
-            // --- Phase 7.1 Secondary Boot Code Execution Validation ---
-            spdlog::info("[Phase 7.1] Starting 20-instruction single-step execution trace on vCPU1 (p01.02)...");
+            // --- Phase 7.2 Secondary Kernel Entry Validation ---
+            spdlog::info("[Phase 7.2] Starting incremental single-step execution trace on vCPU1 (p01.02)...");
             gdb.selectThread("p01.02");
 
-            for (int step = 1; step <= 20; ++step) {
+            for (int step = 1; step <= 25; ++step) {
                 uint64_t pc = 0, pstate = 0, sp = 0, lr = 0, x0 = 0;
                 gdb.readRegister(GdbRspClient::REG_PC, pc);
                 gdb.readRegister(GdbRspClient::REG_PSTATE, pstate);
@@ -418,15 +418,16 @@ void SmcInterceptorWorker::run() {
                     insn = codeBuf[0] | (codeBuf[1] << 8) | (codeBuf[2] << 16) | (codeBuf[3] << 24);
                 }
 
-                spdlog::info("[Phase 7.1 Step {:02d}/20] PC=0x{:016x} [{}] Insn=0x{:08x} EL{} PSTATE=0x{:08x} SP=0x{:016x} LR=0x{:016x} X0=0x{:x}",
+                spdlog::info("[Phase 7.2 Step {:02d}/25] PC=0x{:016x} | Symbol: {} | Insn=0x{:08x} | EL{} PSTATE=0x{:08x} SP=0x{:016x} LR=0x{:016x} X0=0x{:x}",
                              step, pc, symbolStr, insn, el, pstate, sp, lr, x0);
 
                 if (!gdb.sendStep()) {
-                    spdlog::warn("[Phase 7.1] Step {} failed or encountered exception / halt.", step);
+                    spdlog::warn("[Phase 7.2] Step {} halted or encountered exception.", step);
                     break;
                 }
             }
             gdb.selectThread("p01.01");
+
 
             // --- SMP Validation Probe: Measure vCPU1 and vCPU0 execution over time ---
             spdlog::info("[SMP Validation] Beginning empirical vCPU execution tracking (+1ms, +10ms, +100ms, +500ms)...");
