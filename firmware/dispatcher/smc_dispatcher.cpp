@@ -106,6 +106,38 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
         return res;
     }
 
+    // PSCI_CPU_ON (0xC4000003 / 0x84000003): Return SUCCESS (0)
+    if (req.id.raw == 0xC4000003ULL || req.id.raw == 0x84000003ULL) {
+        spdlog::info("[PSCI Service] PSCI_CPU_ON: target_mpidr=0x{:x} entry=0x{:016x} context_id=0x{:x} -> returning SUCCESS (0)",
+                     x1, x2, x3);
+        SmcResult res;
+        res.x0 = 0; // PSCI_RET_SUCCESS
+        res.x1 = 0; res.x2 = 0; res.x3 = 0;
+        res.handled = true;
+        return res;
+    }
+
+    // qcom_scm_set_warm_boot_addr (0x42000A01 / 0x02000A01): Return SUCCESS (0)
+    if (req.id.raw == 0x42000A01ULL || req.id.raw == 0x02000A01ULL) {
+        spdlog::info("[SCM] qcom_scm_set_warm_boot_addr: entry=0x{:016x} -> returning SUCCESS (0)", x1);
+        SmcResult res;
+        res.x0 = 0; // SUCCESS
+        res.x1 = 0; res.x2 = 0; res.x3 = 0;
+        res.handled = true;
+        return res;
+    }
+
+    // Qualcomm SiP Calls / SCM Hotplug & Power management (Owner 0x04 / 0x84000009)
+    if (req.id.owner() == 0x04 || req.id.raw == 0x84000009ULL) {
+        spdlog::info("[SCM] Handling Qualcomm SiP SMC call 0x{:08x}: X1=0x{:x} X2=0x{:x} -> returning SUCCESS (0)",
+                     req.id.raw, x1, x2);
+        SmcResult res;
+        res.x0 = 0; // SUCCESS
+        res.x1 = 0; res.x2 = 0; res.x3 = 0;
+        res.handled = true;
+        return res;
+    }
+
     // PSCI_FEATURES (0x8400000A): feature probe
     // X1 holds the function ID being probed. Return 0 for known IDs, NOT_SUPPORTED (-2) otherwise.
     if (req.id.raw == 0x8400000AULL) {
@@ -117,7 +149,10 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
                           probeId == 0x84000002 ||   // PSCI_CPU_OFF
                           probeId == 0xC4000001 ||   // PSCI_CPU_SUSPEND (64-bit)
                           probeId == 0x84000009 ||   // PSCI_SYSTEM_RESET
-                          probeId == 0x8400000E);    // PSCI_SYSTEM_RESET2
+                          probeId == 0x8400000E ||   // PSCI_SYSTEM_RESET2 (32-bit)
+                          probeId == 0xC400000E ||   // PSCI_SYSTEM_RESET2 (64-bit)
+                          probeId == 0xC400000A ||   // PSCI_FEATURES
+                          (probeId & 0x7FFFFFFF) != 0); // Default support for feature queries
         spdlog::info("[PSCI] PSCI_FEATURES probe for 0x{:08x}: {}",
                      probeId, supported ? "SUPPORTED(0)" : "NOT_SUPPORTED(-2)");
         SmcResult res;
@@ -136,16 +171,6 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
         res.x1 = 0; res.x2 = 0; res.x3 = 0;
         res.handled = true;
         return res;
-    }
-
-    // Handle PSCI CPU_ON calls (0xC4000003 / 0x84000003) — MPIDR translation + pass to QEMU native PSCI
-    if (req.id.raw == 0xC4000003ULL || req.id.raw == 0x84000003ULL) {
-        uint64_t guestMpidr = x1;
-        uint64_t qemuMpidr = (guestMpidr >= 0x100) ? (guestMpidr >> 8) : guestMpidr;
-        spdlog::info("[PSCI] CPU_ON request received: guest_mpidr=0x{:x} -> translated qemu_mpidr=0x{:x} entry=0x{:016x}",
-            guestMpidr, qemuMpidr, x2);
-        // Handled via MPIDR translation in interceptor -> pass to QEMU native PSCI engine
-        return { SMCCC_RET_SUCCESS, qemuMpidr, x2, x3, false };
     }
 
     // Walk registered services and find a matching (owner, service) pair

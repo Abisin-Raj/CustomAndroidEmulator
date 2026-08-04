@@ -9,14 +9,11 @@ function Remove-Signature($filePath) {
     } catch {}
 }
 
-$src  = ".\build_ninja\tests\execute_test_runner.exe"
-$dest = ".\build_ninja\launcher\execute_test_runner.exe"
+$src = ".\build_ninja\tests\execute_test_runner.exe"
 
-Copy-Item $src $dest -Force
 Remove-Signature $src
-Remove-Signature $dest
-Unblock-File -Path $dest -ErrorAction SilentlyContinue
+Unblock-File -Path $src -ErrorAction SilentlyContinue
 
 $env:QEMU_DATA_DIR = "C:\msys64\mingw64\share\qemu"
 
-& $dest --run-real-vm
+& $src --run-real-vm

@@ -106,30 +106,38 @@ void SmcInterceptorWorker::run() {
         static_cast<uint8_t>((nopOp >> 16) & 0xFF),
         static_cast<uint8_t>((nopOp >> 24) & 0xFF)
     };
-    gdb.writeMemory(0x8090a25cULL, nopBytes);   // first  inline smc #0
-    gdb.writeMemory(0x8090a26cULL, nopBytes);   // guard  (next instruction)
-    gdb.writeMemory(0x8090a31cULL, nopBytes);   // second inline smc #0
-    gdb.writeMemory(0x8090a32cULL, nopBytes);   // guard  (next instruction)
-    spdlog::info("[SMC] Startup RAM NOP patches applied at 0x8090a25c + 0x8090a31c (t=0.0s)!");
+    uint32_t movW0Zero = 0x52800000;
+    std::vector<uint8_t> movW0Bytes = {
+        static_cast<uint8_t>(movW0Zero & 0xFF),
+        static_cast<uint8_t>((movW0Zero >> 8) & 0xFF),
+        static_cast<uint8_t>((movW0Zero >> 16) & 0xFF),
+        static_cast<uint8_t>((movW0Zero >> 24) & 0xFF)
+    };
+    gdb.writeMemory(0x8090a25cULL, movW0Bytes);   // inline smc #0 -> mov w0, #0
+    gdb.writeMemory(0x8090a26cULL, movW0Bytes);   // guard
+    gdb.writeMemory(0x8090a31cULL, movW0Bytes);   // second inline smc #0
+    gdb.writeMemory(0x8090a32cULL, movW0Bytes);   // guard
+    gdb.writeMemory(0x824eab08ULL, nopBytes);     // qcom_boot_secondary b.eq -> NOP
+    spdlog::info("[SMC] Startup RAM NOP & mov w0,#0 patches applied at 0x8090a25c + 0x8090a31c + 0x824eab08 (t=0.0s)!");
 
-
-    // Arm hardware breakpoint at physical kernel _text entry (0x80080000) at t=0.0s BEFORE releasing guest
-    gdb.insertBreakpoint(0x80080000ULL);
-    spdlog::info("[SMC] Armed initial hardware breakpoint at physical _text (0x80080000) at t=0.0s!");
-
-
-
+    std::vector<uint64_t> smcAddrs;
+    std::vector<uint64_t> targetedAddrs = {
+        0xffffff80080a02b4ULL,         // __arm_smccc_smc
+        0xffffff80080a02e0ULL,         // __arm_smccc_hvc
+        0xffffff800888a250ULL          // qcom_scm_set_warm_boot_addr (secondary CPU bringup)
+    };
+    smcAddrs = targetedAddrs;
+    for (uint64_t addr : targetedAddrs) {
+        gdb.insertBreakpoint(addr);
+    }
+    spdlog::info("[SMC] Armed all 3 essential hardware breakpoints (under QEMU 4-HW-BP limit) at t=0.0s!");
 
     // Release the guest from -S pause
-
-    // This allows the guest kernel to run its early assembly bootloader,
-    // enable the MMU, and enter virtual memory mode.
     spdlog::info("[SMC] Connected. Releasing guest to initialize MMU...");
     gdb.sendContinue();
 
     // --- 2. Defer breakpoint insertion until MMU is enabled ---
     // We poll and interrupt the guest until we confirm it is executing in virtual memory space.
-    std::vector<uint64_t> smcAddrs;
     bool mmuEnabled = false;
     int retries = 0;
 
@@ -166,7 +174,8 @@ void SmcInterceptorWorker::run() {
                 gdb.writeMemory(0x8090a26cULL, nopBytes);
                 gdb.writeMemory(0x8090a31cULL, nopBytes);
                 gdb.writeMemory(0x8090a32cULL, nopBytes);
-                spdlog::info("[Phase 6.9 Step 1] Patched physical 0x8090a25c + 0x8090a31c to NOP!");
+                gdb.writeMemory(0x824eab08ULL, nopBytes);
+                spdlog::info("[Phase 6.9 Step 1] Patched physical 0x8090a25c + 0x824eab08 to NOP!");
                 gdb.insertBreakpoint(0xffffff800a46ab18ULL);
                 spdlog::info("[Phase 6.9 Step 1] Armed breakpoint at 0xffffff800a46ab18 (bl psci_ops.cpu_on). Resuming guest...");
                 gdb.sendContinue();
@@ -177,19 +186,32 @@ void SmcInterceptorWorker::run() {
             if (pc >= 0xffffff8000000000ULL) {
 
                 mmuEnabled = true;
-                // Target entry points: kernel _text entry, SMC wrapper, HVC wrapper, psci_ops.cpu_on call site
                 std::vector<uint64_t> targetedAddrs = {
-                    0xffffff8008000000ULL,         // _text (kernel entry)
                     0xffffff80080a02b4ULL,         // __arm_smccc_smc
                     0xffffff80080a02e0ULL,         // __arm_smccc_hvc
-                    0xffffff800a46ab18ULL          // bl psci_ops.cpu_on in qcom_boot_secondary
+                    0xffffff800888a250ULL          // qcom_scm_set_warm_boot_addr (secondary CPU bringup)
                 };
                 smcAddrs = targetedAddrs;
 
 
 
 
-                // Patch inline smc #0 instructions (0xd4000003) to NOP (0xd503201f) to prevent EL1 Undefined Instruction traps in QEMU virt
+                // Patch inline smc #0 instructions (0xd4000003) to mov w0, #0 (0x52800000) to return SUCCESS (0)
+                uint32_t movW0Zero = 0x52800000;
+                std::vector<uint8_t> movW0Bytes = {
+                    static_cast<uint8_t>(movW0Zero & 0xFF),
+                    static_cast<uint8_t>((movW0Zero >> 8) & 0xFF),
+                    static_cast<uint8_t>((movW0Zero >> 16) & 0xFF),
+                    static_cast<uint8_t>((movW0Zero >> 24) & 0xFF)
+                };
+                gdb.writeMemory(0xffffff800888a25cULL, movW0Bytes);
+                gdb.writeMemory(0xffffff800888a26cULL, movW0Bytes);
+                gdb.writeMemory(0xffffff800888a31cULL, movW0Bytes);
+                gdb.writeMemory(0xffffff800888a32cULL, movW0Bytes);
+                spdlog::info("[SMC] Patched virtual 0x888a25c + 0x888a31c inline smc #0 to mov w0, #0 (SUCCESS)");
+
+                // Patch b.eq 0xa46ab1c at 0xffffff800a46ab08 in qcom_boot_secondary() to NOP (0xd503201f)
+                // so failure of qcom_scm_set_warm_boot_addr() does not jump to panic, allowing fallthrough to bl cpu_psci_cpu_boot (PSCI_CPU_ON).
                 uint32_t nopOp = 0xd503201f;
                 std::vector<uint8_t> nopBytes = {
                     static_cast<uint8_t>(nopOp & 0xFF),
@@ -197,13 +219,8 @@ void SmcInterceptorWorker::run() {
                     static_cast<uint8_t>((nopOp >> 16) & 0xFF),
                     static_cast<uint8_t>((nopOp >> 24) & 0xFF)
                 };
-                gdb.writeMemory(0xffffff800888a25cULL, nopBytes);
-                gdb.writeMemory(0xffffff800888a26cULL, nopBytes);
-                gdb.writeMemory(0xffffff800888a31cULL, nopBytes);
-                gdb.writeMemory(0xffffff800888a32cULL, nopBytes);
-                spdlog::info("[SMC] Patched virtual 0x888a25c + 0x888a31c inline smc #0 to NOP");
-
-
+                gdb.writeMemory(0xffffff800a46ab08ULL, nopBytes);
+                smcAddrs = targetedAddrs;
                 break;
 
 
@@ -303,7 +320,11 @@ void SmcInterceptorWorker::run() {
                               tid.toStdString(), tpc, tpstate, el);
             }
             // Re-select stopped thread for all subsequent register access
-            if (!threadId.isEmpty()) gdb.selectThread(threadId);
+            if (!threadId.isEmpty()) {
+                gdb.selectThread(threadId);
+            } else {
+                gdb.selectThread("p01.01");
+            }
         }
 
         // --- Read current PC to confirm we hit one of our SMC breakpoints ---
@@ -347,69 +368,104 @@ void SmcInterceptorWorker::run() {
             gdb.writeMemory(0x8090a31cULL, nopBytes);
             gdb.writeMemory(0x8090a32cULL, nopBytes);
             spdlog::info("[Phase 6.9 Step 1] Patched physical 0x8090a31c/32c to NOP!");
-
-            // Arm virtual breakpoint at psci_ops.cpu_on call site (will fire after MMU enabled)
-            gdb.insertBreakpoint(0xffffff800a46ab18ULL);
-            spdlog::info("[Phase 6.9 Step 1] Armed hardware breakpoint at 0xffffff800a46ab18 (bl psci_ops.cpu_on). Resuming guest...");
             gdb.sendContinue();
             continue;
         }
 
+        // --- Intercept qcom_scm_set_warm_boot_addr (0x888a250) or qcom_boot_secondary (0xa46ab00 / 0xa46ab18) ---
+        if (pc == 0xffffff800888a250ULL || pc == 0xffffff800a46ab00ULL || pc == 0xffffff800a46ab18ULL) {
+            spdlog::info("[PSCI Framework Phase 6.13] === CONFIRMED: Execution reached secondary bringup trigger (PC=0x{:016x}) ===", pc);
 
-        // Phase 6.9: Intercept bl psci_ops.cpu_on (0xffffff800a46ab18)
-        if (pc == 0xffffff800a46ab18ULL) {
-            spdlog::info("[Phase 6.9 Step 2 & 3] CONFIRMED: Execution reached 0xffffff800a46ab18 (bl psci_ops.cpu_on)!");
-            spdlog::info("[Phase 6.9 Step 3] Arguments at psci_ops.cpu_on call site: X0=0x{:016x} X1 (Target CPU/MPIDR)=0x{:x} X2 (Entry PA)=0x{:016x}",
-                         x0, x1, x2);
+            // Remove hardware breakpoint at trigger PC to prevent infinite GDB re-trigger loop
+            gdb.removeBreakpoint(pc);
 
-            // Single-step into psci_ops.cpu_on until HVC/SMC instruction
-            for (int step = 1; step <= 25; ++step) {
-                gdb.sendStep();
-                uint64_t stepPc = 0, stepX0 = 0, stepX1 = 0, stepX2 = 0;
-                gdb.readRegister(GdbRspClient::REG_PC, stepPc);
-                gdb.readRegister(GdbRspClient::REG_X0, stepX0);
-                gdb.readRegister(GdbRspClient::REG_X0 + 1, stepX1);
-                gdb.readRegister(GdbRspClient::REG_X0 + 2, stepX2);
+            uint64_t target_mpidr = (x1 != 0) ? x1 : 0x100;
+            uint64_t entry_pa     = (x2 != 0) ? x2 : 0x80900000ULL;
+            uint64_t context_id   = x3;
 
-                spdlog::info("[Phase 6.9 StepTrace {:02d}] PC=0x{:016x} ({}) X0=0x{:x} X1=0x{:x} X2=0x{:x}",
-                             step, stepPc, m_resolver.resolveAddress(stepPc), stepX0, stepX1, stepX2);
+            // Board-specific MPIDR translation hook:
+            // Qualcomm 0x100 -> vCPU index 1 (GDB thread "p01.02")
+            // Qualcomm 0x200 -> vCPU index 2 (GDB thread "p01.03")
+            int targetVcpuIdx = 1;
+            if ((target_mpidr & 0xFF00) == 0x100 || (target_mpidr & 0xFF) == 1) {
+                targetVcpuIdx = 1;
+            } else if ((target_mpidr & 0xFF00) == 0x200 || (target_mpidr & 0xFF) == 2) {
+                targetVcpuIdx = 2;
+            } else if ((target_mpidr & 0xFF) > 0 && (target_mpidr & 0xFF) < 8) {
+                targetVcpuIdx = static_cast<int>(target_mpidr & 0xFF);
+            }
+            QString targetThreadId = QString("p01.%1").arg(targetVcpuIdx + 1, 2, 10, QChar('0'));
 
-                auto insnMem = gdb.readMemory(stepPc, 4);
-                if (insnMem.size() == 4) {
-                    uint32_t opcode = static_cast<uint32_t>(insnMem[0])
-                                    | (static_cast<uint32_t>(insnMem[1]) << 8)
-                                    | (static_cast<uint32_t>(insnMem[2]) << 16)
-                                    | (static_cast<uint32_t>(insnMem[3]) << 24);
-                    if (opcode == 0xd4000002 || opcode == 0xd4000003) { // HVC #0 or SMC #0
-                        spdlog::info("[Phase 6.9 Step 3] About to execute PSCI_CPU_ON HVC/SMC (Opcode=0x{:08x}): X0 (FnID)=0x{:08x} X1 (Target MPIDR)=0x{:x} X2 (Entry PA)=0x{:016x}",
-                                     opcode, stepX0, stepX1, stepX2);
+            spdlog::info("[PSCI Framework Phase 6.13] Executing Generic PSCI CPU_ON Firmware Service...");
+            spdlog::info("[PSCI Framework Phase 6.13] Target MPIDR: 0x{:x} -> Target vCPU Thread: {}", target_mpidr, targetThreadId.toStdString());
+            spdlog::info("[PSCI Framework Phase 6.13] Entry Point PA: 0x{:016x} Context ID: 0x{:x}", entry_pa, context_id);
 
-                        // 4. Single step over the HVC/SMC instruction to capture return value
-                        gdb.sendStep();
-                        uint64_t retX0 = 0;
-                        gdb.readRegister(GdbRspClient::REG_X0, retX0);
-                        spdlog::info("[Phase 6.9 Step 4] PSCI_CPU_ON Return Value: X0=0x{:016x} (dec {:d})",
-                                     retX0, static_cast<int64_t>(retX0));
+            // 1. Select target vCPU thread (vCPU1)
+            gdb.selectThread(targetThreadId);
 
-                        // Query vCPU 1 (CPU1) observer state
-                        gdb.selectThread("p01.02");
-                        uint64_t cpu1_pc = 0, cpu1_pstate = 0;
-                        gdb.readRegister(GdbRspClient::REG_PC, cpu1_pc);
-                        gdb.readRegister(GdbRspClient::REG_PSTATE, cpu1_pstate);
-                        spdlog::info("[Phase 6.9 Step 4] vCPU 1 (CPU1) Observer State after PSCI_CPU_ON: PC=0x{:016x} ({}) PSTATE=0x{:08x}",
-                                     cpu1_pc, m_resolver.resolveAddress(cpu1_pc), cpu1_pstate);
-                        if (!threadId.isEmpty()) gdb.selectThread(threadId);
-                        break;
+            // 2. Program target vCPU architectural registers with 4-byte aligned entry address
+            uint64_t aligned_entry = entry_pa & ~3ULL;
+            gdb.writeRegister(GdbRspClient::REG_PC, aligned_entry);      // Set PC = aligned entry physical address
+            gdb.writeRegister(GdbRspClient::REG_PSTATE, 0x3c5);          // EL1h mode with DAIF masked
+            gdb.writeRegister(GdbRspClient::REG_X0, context_id);         // X0 = context ID (X3)
+
+            spdlog::info("[PSCI Framework Phase 6.13] SUCCESS: Target vCPU State Programmed! PC=0x{:016x} (aligned from 0x{:016x}) PSTATE=0x3c5 X0=0x{:x}",
+                         aligned_entry, entry_pa, context_id);
+
+            // 3. Reselect calling vCPU thread (vCPU0)
+            gdb.selectThread("p01.01");
+
+            // 4. Return PSCI_RET_SUCCESS (0) to calling CPU0 and advance PC past secondary bringup branch
+            gdb.writeRegister(GdbRspClient::REG_X0, 0);
+            gdb.writeRegister(GdbRspClient::REG_PC, 0xffffff800a46ab1cULL);
+            spdlog::info("[PSCI Framework Phase 6.13] Returning PSCI_RET_SUCCESS (0) to vCPU0, PC advanced to 0xffffff800a46ab1c");
+
+            gdb.sendContinue();
+
+            // --- SMP Validation Probe: Measure vCPU1 and vCPU0 execution over time ---
+            spdlog::info("[SMP Validation] Beginning empirical vCPU execution tracking (+1ms, +10ms, +100ms, +500ms)...");
+            std::vector<int> sampleDelaysMs = {1, 10, 100, 500};
+            for (int delayMs : sampleDelaysMs) {
+                QThread::msleep(delayMs);
+                if (gdb.sendInterrupt()) {
+                    QString sReply = gdb.waitForStop(1000);
+
+                    // Sample vCPU1 (p01.02)
+                    gdb.selectThread("p01.02");
+                    uint64_t cpu1_pc = 0, cpu1_pstate = 0, cpu1_sp = 0, cpu1_lr = 0, cpu1_x0 = 0;
+                    gdb.readRegister(GdbRspClient::REG_PC, cpu1_pc);
+                    gdb.readRegister(GdbRspClient::REG_PSTATE, cpu1_pstate);
+                    gdb.readRegister(GdbRspClient::REG_SP, cpu1_sp);
+                    gdb.readRegister(GdbRspClient::REG_X30, cpu1_lr);
+                    gdb.readRegister(GdbRspClient::REG_X0, cpu1_x0);
+
+                    // Sample vCPU0 (p01.01)
+                    gdb.selectThread("p01.01");
+                    uint64_t cpu0_pc = 0, cpu0_pstate = 0, cpu0_sp = 0, cpu0_lr = 0;
+                    gdb.readRegister(GdbRspClient::REG_PC, cpu0_pc);
+                    gdb.readRegister(GdbRspClient::REG_PSTATE, cpu0_pstate);
+                    gdb.readRegister(GdbRspClient::REG_SP, cpu0_sp);
+                    gdb.readRegister(GdbRspClient::REG_X30, cpu0_lr);
+
+                    spdlog::info("[SMP Validation] t=+{}ms | vCPU1: PC=0x{:016x} PSTATE=0x{:x} SP=0x{:016x} LR=0x{:016x} X0=0x{:x} | vCPU0: PC=0x{:016x} SP=0x{:016x}",
+                                 delayMs, cpu1_pc, cpu1_pstate, cpu1_sp, cpu1_lr, cpu1_x0, cpu0_pc, cpu0_sp);
+
+                    // Disassemble 4 instructions around CPU1 PC
+                    if (cpu1_pc != 0) {
+                        std::vector<uint8_t> codeBuf = gdb.readMemory(cpu1_pc, 16);
+                        if (!codeBuf.empty()) {
+                            for (size_t i = 0; i + 3 < codeBuf.size(); i += 4) {
+                                uint32_t insn = codeBuf[i] | (codeBuf[i+1] << 8) | (codeBuf[i+2] << 16) | (codeBuf[i+3] << 24);
+                                spdlog::info("[SMP Validation Disasm] vCPU1 [0x{:016x}]: 0x{:08x}", cpu1_pc + i, insn);
+                            }
+                        }
                     }
+
+                    gdb.sendContinue();
                 }
             }
-
-            gdb.sendContinue();
             continue;
         }
-
-
-
 
         // Read LR (X30), SP and X19 for call-chain and result mapping tracing
         uint64_t lr = 0, sp = 0, x19 = 0;
@@ -547,21 +603,7 @@ void SmcInterceptorWorker::run() {
             spdlog::info("[SMC] ===============================================");
         }
 
-        // Phase 6.10: Intercept qcom_scm_set_warm_boot_addr (SMC ID 0x42000A01)
-        // QEMU virt has no EL3/SCM firmware — it returns -1, causing qcom_boot_secondary() to panic.
-        // We force W0=0 (SUCCESS) and redirect PC to LR so the cbnz check at 0xa46aafc passes,
-        // allowing execution to continue to the bl psci_ops.cpu_on at 0xffffff800a46ab18.
-        if ((x0 & 0xFFFFFFFF) == 0x42000A01UL) {
-            uint64_t lr = 0;
-            gdb.readRegister(GdbRspClient::REG_X30, lr);
-            spdlog::info("[Phase 6.10 Step 1] Intercepted qcom_scm_set_warm_boot_addr (X0=0x{:08x}) at PC=0x{:016x} LR=0x{:016x}",
-                         x0, pc, lr);
-            spdlog::info("[Phase 6.10 Step 1] Setting W0=0 (SUCCESS) and redirecting PC to LR=0x{:016x}", lr);
-            gdb.writeRegister(GdbRspClient::REG_X0, 0);
-            gdb.writeRegister(GdbRspClient::REG_PC, lr);
-            gdb.sendContinue();
-            continue;
-        }
+
 
         // --- Dispatch through firmware compatibility layer ---
         firmware::SmcResult result = m_dispatcher.dispatch(x0, x1, x2, x3, x4, x5, x6);
@@ -639,6 +681,25 @@ void SmcInterceptorWorker::run() {
                 }
             }
 
+            uint64_t x8 = 0;
+            gdb.readRegister(GdbRspClient::REG_X0 + 8, x8);
+            if (x8 >= 0xffffff8000000000ULL) {
+                auto encU64Le = [](uint64_t v) -> std::vector<uint8_t> {
+                    std::vector<uint8_t> b(8);
+                    for (int i = 0; i < 8; ++i) { b[i] = v & 0xFF; v >>= 8; }
+                    return b;
+                };
+                std::vector<uint8_t> payload;
+                auto a0 = encU64Le(result.x0); payload.insert(payload.end(), a0.begin(), a0.end());
+                auto a1 = encU64Le(result.x1); payload.insert(payload.end(), a1.begin(), a1.end());
+                auto a2 = encU64Le(result.x2); payload.insert(payload.end(), a2.begin(), a2.end());
+                auto a3 = encU64Le(result.x3); payload.insert(payload.end(), a3.begin(), a3.end());
+
+                bool patched = gdb.writeMemory(x8, payload);
+                spdlog::info("[SMC] Direct AAPCS64 X8 result patch → 0x{:016x}: status=0x{:x} a0=0x{:x} a1=0x{:x} [{}]",
+                    x8, result.x0, result.x1, result.x2, patched ? "OK" : "FAILED");
+            }
+
             if (x19 >= 0xffffff8000000000ULL) {
                 auto encU64Le = [](uint64_t v) -> std::vector<uint8_t> {
                     std::vector<uint8_t> b(8);
@@ -668,6 +729,44 @@ void SmcInterceptorWorker::run() {
 
             spdlog::info("[SMC] Emulated: {} → X0=0x{:x} handled={} PC now=0x{:016x}",
                 req.id.toString(), result.x0, result.handled, pc + 4);
+
+            bool isCpuOn = (req.id.raw == 0xC4000003ULL || req.id.raw == 0x84000003ULL);
+            if (isCpuOn) {
+                // Phase 6.13 Generic PSCI Compatibility Service: Initialize target vCPU state
+                uint64_t target_mpidr = x1;
+                uint64_t entry_pa     = x2;
+                uint64_t context_id   = x3;
+
+                // Board-specific MPIDR translation hook:
+                // Qualcomm 0x100 -> vCPU index 1 (GDB thread "p01.02")
+                // Qualcomm 0x200 -> vCPU index 2 (GDB thread "p01.03")
+                int targetVcpuIdx = 1;
+                if ((target_mpidr & 0xFF00) == 0x100 || (target_mpidr & 0xFF) == 1) {
+                    targetVcpuIdx = 1;
+                } else if ((target_mpidr & 0xFF00) == 0x200 || (target_mpidr & 0xFF) == 2) {
+                    targetVcpuIdx = 2;
+                } else if ((target_mpidr & 0xFF) > 0 && (target_mpidr & 0xFF) < 8) {
+                    targetVcpuIdx = static_cast<int>(target_mpidr & 0xFF);
+                }
+                QString targetThreadId = QString("p01.%1").arg(targetVcpuIdx + 1, 2, 10, QChar('0'));
+
+                spdlog::info("[PSCI Framework Phase 6.13] === Generic PSCI CPU_ON Service Invoked ===");
+                spdlog::info("[PSCI Framework Phase 6.13] Target MPIDR: 0x{:x} -> Target vCPU Thread: {}", target_mpidr, targetThreadId.toStdString());
+                spdlog::info("[PSCI Framework Phase 6.13] Entry Point PA: 0x{:016x} Context ID: 0x{:x}", entry_pa, context_id);
+
+                // 1. Select target vCPU thread
+                gdb.selectThread(targetThreadId);
+
+                // 2. Program target vCPU architectural registers
+                gdb.writeRegister(GdbRspClient::REG_PC, entry_pa);          // Set PC = entry physical address (0x80900000)
+                gdb.writeRegister(GdbRspClient::REG_PSTATE, 0x3c5);          // EL1h mode with DAIF masked
+                gdb.writeRegister(GdbRspClient::REG_X0, context_id);         // X0 = context ID (X3)
+
+                spdlog::info("[PSCI Framework Phase 6.13] Target vCPU State Programmed: PC=0x{:016x} PSTATE=0x3c5 X0=0x{:x}", entry_pa, context_id);
+
+                // 3. Reselect calling vCPU thread (vCPU0)
+                gdb.selectThread("p01.01");
+            }
 
             // Phase 6.9: Single-step post-warm-boot execution to capture panic string & MMIO accesses
             uint32_t smcCmd = static_cast<uint32_t>(x0 & 0xFFFFFFFFULL);
