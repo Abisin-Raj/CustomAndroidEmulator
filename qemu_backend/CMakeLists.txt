@@ -3,11 +3,14 @@ add_library(qemu_backend STATIC
     include/qemu_backend/qemu_arguments.h
     include/qemu_backend/qemu_launcher.h
     include/qemu_backend/gdb_rsp_client.h
+    include/qemu_backend/cpu_wake_backend.h
+    include/qemu_backend/qemu_cpu_wake_backend.h
     include/qemu_backend/smc_interceptor.h
     src/qemu_detector.cpp
     src/qemu_arguments.cpp
     src/qemu_launcher.cpp
     src/gdb_rsp_client.cpp
+    src/qemu_cpu_wake_backend.cpp
     src/smc_interceptor.cpp
 )
 

@@ -1,5 +1,6 @@
 #include "qemu_backend/smc_interceptor.h"
 #include "qemu_backend/gdb_rsp_client.h"
+#include "qemu_backend/qemu_cpu_wake_backend.h"
 #include "firmware/smc_types.h"
 #include "core/logger.h"
 #include "behavior_exploration_tool/bet_system.h"
@@ -383,42 +384,15 @@ void SmcInterceptorWorker::run() {
             uint64_t entry_pa     = (x2 != 0) ? x2 : 0x80900000ULL;
             uint64_t context_id   = x3;
 
-            // Board-specific MPIDR translation hook:
-            // Qualcomm 0x100 -> vCPU index 1 (GDB thread "p01.02")
-            // Qualcomm 0x200 -> vCPU index 2 (GDB thread "p01.03")
-            int targetVcpuIdx = 1;
-            if ((target_mpidr & 0xFF00) == 0x100 || (target_mpidr & 0xFF) == 1) {
-                targetVcpuIdx = 1;
-            } else if ((target_mpidr & 0xFF00) == 0x200 || (target_mpidr & 0xFF) == 2) {
-                targetVcpuIdx = 2;
-            } else if ((target_mpidr & 0xFF) > 0 && (target_mpidr & 0xFF) < 8) {
-                targetVcpuIdx = static_cast<int>(target_mpidr & 0xFF);
-            }
-            QString targetThreadId = QString("p01.%1").arg(targetVcpuIdx + 1, 2, 10, QChar('0'));
+            spdlog::info("[PSCI Framework Phase 6.15A] Delegating CPU_ON to ICpuWakeBackend...");
+            QemuCpuWakeBackend wakeBackend(&gdb);
+            bool wakeSuccess = wakeBackend.wakeCpu(target_mpidr, entry_pa, context_id);
 
-            spdlog::info("[PSCI Framework Phase 6.13] Executing Generic PSCI CPU_ON Firmware Service...");
-            spdlog::info("[PSCI Framework Phase 6.13] Target MPIDR: 0x{:x} -> Target vCPU Thread: {}", target_mpidr, targetThreadId.toStdString());
-            spdlog::info("[PSCI Framework Phase 6.13] Entry Point PA: 0x{:016x} Context ID: 0x{:x}", entry_pa, context_id);
-
-            // 1. Select target vCPU thread (vCPU1)
-            gdb.selectThread(targetThreadId);
-
-            // 2. Program target vCPU architectural registers with 4-byte aligned entry address
-            uint64_t aligned_entry = entry_pa & ~3ULL;
-            gdb.writeRegister(GdbRspClient::REG_PC, aligned_entry);      // Set PC = aligned entry physical address
-            gdb.writeRegister(GdbRspClient::REG_PSTATE, 0x3c5);          // EL1h mode with DAIF masked
-            gdb.writeRegister(GdbRspClient::REG_X0, context_id);         // X0 = context ID (X3)
-
-            spdlog::info("[PSCI Framework Phase 6.13] SUCCESS: Target vCPU State Programmed! PC=0x{:016x} (aligned from 0x{:016x}) PSTATE=0x3c5 X0=0x{:x}",
-                         aligned_entry, entry_pa, context_id);
-
-            // 3. Reselect calling vCPU thread (vCPU0)
-            gdb.selectThread("p01.01");
-
-            // 4. Return PSCI_RET_SUCCESS (0) to calling CPU0 and advance PC past secondary bringup branch
-            gdb.writeRegister(GdbRspClient::REG_X0, 0);
+            // Return status to calling vCPU0 based strictly on backend result
+            uint64_t psciRet = wakeSuccess ? 0ULL : static_cast<uint64_t>(-1LL);
+            gdb.writeRegister(GdbRspClient::REG_X0, psciRet);
             gdb.writeRegister(GdbRspClient::REG_PC, 0xffffff800a46ab1cULL);
-            spdlog::info("[PSCI Framework Phase 6.13] Returning PSCI_RET_SUCCESS (0) to vCPU0, PC advanced to 0xffffff800a46ab1c");
+            spdlog::info("[PSCI Framework Phase 6.15A] Returning status {} (0=SUCCESS, -1=FAIL) to vCPU0, PC advanced to 0xffffff800a46ab1c", psciRet);
 
             gdb.sendContinue();
 
