@@ -24,7 +24,9 @@ std::string QemuDetector::detectQemuPath() {
 
     // 3. Scan common paths on Windows
     std::vector<std::string> candidates = {
+        "C:\\qemu_source\\build\\qemu-system-aarch64.exe",
         "C:\\Program Files\\qemu\\qemu-system-aarch64.exe",
+
         "C:\\Program Files (x86)\\qemu\\qemu-system-aarch64.exe",
         "C:\\msys64\\mingw64\\bin\\qemu-system-aarch64.exe",
         "C:\\msys64\\usr\\bin\\qemu-system-aarch64.exe"

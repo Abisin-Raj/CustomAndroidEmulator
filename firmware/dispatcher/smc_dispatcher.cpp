@@ -127,8 +127,8 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
         return res;
     }
 
-    // Qualcomm SiP Calls / SCM Hotplug & Power management (Owner 0x04 / 0x84000009)
-    if (req.id.owner() == 0x04 || req.id.raw == 0x84000009ULL) {
+    // Qualcomm SiP Calls / SCM Hotplug & Power management (0x84000009)
+    if (req.id.raw == 0x84000009ULL || req.id.raw == 0xC4000009ULL) {
         spdlog::info("[SCM] Handling Qualcomm SiP SMC call 0x{:08x}: X1=0x{:x} X2=0x{:x} -> returning SUCCESS (0)",
                      req.id.raw, x1, x2);
         SmcResult res;
@@ -137,6 +137,7 @@ SmcResult SmcDispatcher::dispatch(uint64_t x0,
         res.handled = true;
         return res;
     }
+
 
     // PSCI_FEATURES (0x8400000A): feature probe
     // X1 holds the function ID being probed. Return 0 for known IDs, NOT_SUPPORTED (-2) otherwise.

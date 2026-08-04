@@ -396,6 +396,38 @@ void SmcInterceptorWorker::run() {
 
             gdb.sendContinue();
 
+            // --- Phase 7.1 Secondary Boot Code Execution Validation ---
+            spdlog::info("[Phase 7.1] Starting 20-instruction single-step execution trace on vCPU1 (p01.02)...");
+            gdb.selectThread("p01.02");
+
+            for (int step = 1; step <= 20; ++step) {
+                uint64_t pc = 0, pstate = 0, sp = 0, lr = 0, x0 = 0;
+                gdb.readRegister(GdbRspClient::REG_PC, pc);
+                gdb.readRegister(GdbRspClient::REG_PSTATE, pstate);
+                gdb.readRegister(GdbRspClient::REG_SP, sp);
+                gdb.readRegister(GdbRspClient::REG_X30, lr);
+                gdb.readRegister(GdbRspClient::REG_X0, x0);
+
+                int el = static_cast<int>((pstate >> 2) & 0x3);
+                std::string symbolStr = m_resolver.resolveAddress(pc);
+
+                // Read opcode at current PC
+                uint32_t insn = 0;
+                auto codeBuf = gdb.readMemory(pc, 4);
+                if (codeBuf.size() == 4) {
+                    insn = codeBuf[0] | (codeBuf[1] << 8) | (codeBuf[2] << 16) | (codeBuf[3] << 24);
+                }
+
+                spdlog::info("[Phase 7.1 Step {:02d}/20] PC=0x{:016x} [{}] Insn=0x{:08x} EL{} PSTATE=0x{:08x} SP=0x{:016x} LR=0x{:016x} X0=0x{:x}",
+                             step, pc, symbolStr, insn, el, pstate, sp, lr, x0);
+
+                if (!gdb.sendStep()) {
+                    spdlog::warn("[Phase 7.1] Step {} failed or encountered exception / halt.", step);
+                    break;
+                }
+            }
+            gdb.selectThread("p01.01");
+
             // --- SMP Validation Probe: Measure vCPU1 and vCPU0 execution over time ---
             spdlog::info("[SMP Validation] Beginning empirical vCPU execution tracking (+1ms, +10ms, +100ms, +500ms)...");
             std::vector<int> sampleDelaysMs = {1, 10, 100, 500};
@@ -438,6 +470,7 @@ void SmcInterceptorWorker::run() {
                     gdb.sendContinue();
                 }
             }
+
             continue;
         }
 

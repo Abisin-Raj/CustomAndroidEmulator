@@ -67,8 +67,10 @@ SmcResult QcomInfoService::handle(const SmcRequest& req) {
         // and the caller's code around LR=a794 in the next boot trace.
         // X0=1, X1=1 (available), preserve X2/X3.
         SmcResult res;
-        res.x0 = 1; // Triggers interrupted/resume path
+        res.x0 = firmware::SMCCC_RET_SUCCESS; // 0 = Success
         res.x1 = 1; // Available
+
+
         res.x2 = req.args[1]; // Preserve original X2
         res.x3 = req.args[2]; // Preserve original X3
         res.handled = true;
