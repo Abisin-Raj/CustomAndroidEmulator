@@ -5,6 +5,8 @@ import sys
 import struct
 
 qemu_bin = r"C:\qemu_source\build\qemu-system-aarch64.exe"
+
+
 kernel_img = r"C:\Users\ABISIN RAJ\Desktop\Projects\CustomAndroidEmulator\scratch\kernel.img"
 
 cmd = [
@@ -16,17 +18,15 @@ cmd = [
     "-nographic",
     "-kernel", kernel_img,
     "-append", "console=ttyAMA0 earlycon=pl011,0x09000000 androidboot.hardware=qcom nokaslr",
-    "-gdb", "tcp::1239,server,nowait",
+    "-gdb", "tcp::1240,server,nowait",
     "-S",
     "-d", "guest_errors"
 ]
 
-print("[Phase 7.3] Starting QEMU with Real PixelExperience Kernel Image on port 1239...", flush=True)
-proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-time.sleep(2.0)
-if proc.poll() is not None:
-    stdout, stderr = proc.communicate()
-    print("[QEMU Error Output]:\n", stderr.decode(errors='ignore'), flush=True)
+print("[Phase 7.3] Starting QEMU with Real PixelExperience Kernel Image on port 1240...", flush=True)
+proc = subprocess.Popen(cmd)
+time.sleep(1.5)
+print(f"[QEMU Poll Status]: {proc.poll()}", flush=True)
 
 
 def send_rsp(s, payload):
@@ -93,7 +93,7 @@ def get_mem(s, addr, size, thread="p01.02"):
 try:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(4.0)
-    s.connect(("127.0.0.1", 1239))
+    s.connect(("127.0.0.1", 1240))
     s.sendall(b"+")
     send_rsp(s, "qSupported:multiprocess+")
 
@@ -122,13 +122,17 @@ try:
     last_x1 = 0
     last_x2 = 0
     
-    # Trace up to 250 steps to observe cache loop completion and MMU transition
-    for step in range(1, 251):
+    # Trace up to 5000 steps to observe 2nd cache loop completion, MMU enablement, and virtual space jump
+    for step in range(1, 5001):
+
+
+
+
+
         pc = get_reg(s, 32, "p01.02")   # Reg 32 = PC
         x0 = get_reg(s, 0, "p01.02")    # Reg 0 = X0
         x1 = get_reg(s, 1, "p01.02")    # Reg 1 = X1
         x2 = get_reg(s, 2, "p01.02")    # Reg 2 = X2
-        pstate = get_reg(s, 33, "p01.02") # Reg 33 = PSTATE/CPSR
 
         mem_bytes = get_mem(s, pc, 4, "p01.02") if pc != 0 else b""
         insn_val = struct.unpack('<I', mem_bytes)[0] if len(mem_bytes) == 4 else 0
@@ -154,10 +158,19 @@ try:
 
         block_insn_count += 1
 
-        # Track cache loop progress: x0 vs x1
+        if cache_loop_exited and block_name == "Boot Stub":
+            if step % 20 == 0 or step < 1370:
+                lr = get_reg(s, 30, "p01.02")
+                sp = get_reg(s, 31, "p01.02")
+                x3 = get_reg(s, 3, "p01.02")
+                x4 = get_reg(s, 4, "p01.02")
+                print(f"  [Boot Stub Step {step:04d}] PC=0x{pc:016x} | Opcode=0x{insn_val:08x} | X0=0x{x0:x} X1=0x{x1:x} X2=0x{x2:x} X3=0x{x3:x} X4=0x{x4:x} SP=0x{sp:x} LR=0x{lr:x}", flush=True)
+
+
+        # Step 1 Progress Tracking: X0 vs X1 in cache loop
         if block_name == "invalidate_icache_range (Cache Loop)":
-            if step % 5 == 0 or step == 1:
-                print(f"  [Cache Loop Step {step:03d}] PC=0x{pc:016x} | X0=0x{x0:016x} -> X1=0x{x1:016x} | Stride X2=0x{x2:x}", flush=True)
+            if step % 10 == 0 or step == 1:
+                print(f"  [Cache Loop Step {step:03d}] PC=0x{pc:016x} | X0=0x{x0:016x} -> X1=0x{x1:016x} (Stride X2=0x{x2:x})", flush=True)
 
         if last_pc in [0x400a0744, 0x400a0748] and pc not in [0x400a0738, 0x400a073c, 0x400a0740, 0x400a0744, 0x400a0748]:
             if not cache_loop_exited:
@@ -169,8 +182,20 @@ try:
             print(f"\n[Phase 7.3 Milestone] MMU Enablement & Virtual Space Jump DETECTED at Step {step}! PC=0x{pc:016x}", flush=True)
 
         if pc == 0x200 or (pc & 0xFFF) == 0x200:
-            stop_reason = "Trapped to ARM64 Exception Vector (0x200)"
+            stop_reason = f"Trapped to ARM64 Exception Vector (0x200) from previous PC 0x{last_pc:016x}"
+            print(f"\n[Phase 7.3 Exception Trap Detected!]", flush=True)
+            print(f"  Previous PC before trap: 0x{last_pc:016x}", flush=True)
+            prev_mem = get_mem(s, last_pc - 16, 32, "p01.02")
+            if len(prev_mem) == 32:
+                for off in range(0, 32, 4):
+                    addr_chunk = (last_pc - 16) + off
+                    code_val = struct.unpack('<I', prev_mem[off:off+4])[0]
+                    marker = " <== FAULTING INSTRUCTION" if addr_chunk == last_pc else ""
+                    print(f"    0x{addr_chunk:016x}: 0x{code_val:08x}{marker}", flush=True)
+            hmp_info = send_hmp(s, "info registers")
+            print(f"\n  [CPU1 Register State at Exception]:\n{hmp_info.strip()}", flush=True)
             break
+
 
         if secondary_start_kernel_reached:
             stop_reason = "Reached secondary_start_kernel()!"
