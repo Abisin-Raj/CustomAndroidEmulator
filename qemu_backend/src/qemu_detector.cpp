@@ -14,7 +14,14 @@ std::string QemuDetector::detectQemuPath() {
         return configPath;
     }
 
-    // 2. Search executable in system PATH (using Qt portable helper)
+    // 2. Check custom compiled QEMU binary
+    std::string customBuildPath = "C:\\qemu_source\\build\\qemu-system-aarch64.exe";
+    if (std::filesystem::exists(customBuildPath)) {
+        LOG_QEMU_INFO("QemuDetector: Prioritizing custom compiled QEMU: {}", customBuildPath);
+        return customBuildPath;
+    }
+
+    // 3. Search executable in system PATH
     QString envPath = QStandardPaths::findExecutable("qemu-system-aarch64");
     if (!envPath.isEmpty()) {
         std::string pathStr = envPath.toStdString();
@@ -22,15 +29,14 @@ std::string QemuDetector::detectQemuPath() {
         return pathStr;
     }
 
-    // 3. Scan common paths on Windows
+    // 4. Scan common fallback paths on Windows
     std::vector<std::string> candidates = {
-        "C:\\qemu_source\\build\\qemu-system-aarch64.exe",
         "C:\\Program Files\\qemu\\qemu-system-aarch64.exe",
-
         "C:\\Program Files (x86)\\qemu\\qemu-system-aarch64.exe",
         "C:\\msys64\\mingw64\\bin\\qemu-system-aarch64.exe",
         "C:\\msys64\\usr\\bin\\qemu-system-aarch64.exe"
     };
+
 
     for (const auto& path : candidates) {
         if (std::filesystem::exists(path)) {

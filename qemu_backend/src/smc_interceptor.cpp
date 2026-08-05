@@ -396,11 +396,18 @@ void SmcInterceptorWorker::run() {
 
             gdb.sendContinue();
 
-            // --- Phase 7.2 Secondary Kernel Entry Validation ---
-            spdlog::info("[Phase 7.2] Starting incremental single-step execution trace on vCPU1 (p01.02)...");
+            // --- Phase 7.2A First Real Android Secondary CPU Trace ---
+            spdlog::info("[Phase 7.2A] Starting adaptive single-step trace on vCPU1 (up to 100 steps)...");
             gdb.selectThread("p01.02");
 
-            for (int step = 1; step <= 25; ++step) {
+            uint64_t finalPc = 0;
+            std::string finalSymbol = "Unknown";
+            int totalStepsExecuted = 0;
+            bool loopDetected = false;
+            std::string stopReason = "Max 100 steps reached";
+            std::map<uint64_t, int> pcFrequency;
+
+            for (int step = 1; step <= 100; ++step) {
                 uint64_t pc = 0, pstate = 0, sp = 0, lr = 0, x0 = 0;
                 gdb.readRegister(GdbRspClient::REG_PC, pc);
                 gdb.readRegister(GdbRspClient::REG_PSTATE, pstate);
@@ -411,22 +418,57 @@ void SmcInterceptorWorker::run() {
                 int el = static_cast<int>((pstate >> 2) & 0x3);
                 std::string symbolStr = m_resolver.resolveAddress(pc);
 
-                // Read opcode at current PC
                 uint32_t insn = 0;
                 auto codeBuf = gdb.readMemory(pc, 4);
                 if (codeBuf.size() == 4) {
                     insn = codeBuf[0] | (codeBuf[1] << 8) | (codeBuf[2] << 16) | (codeBuf[3] << 24);
                 }
 
-                spdlog::info("[Phase 7.2 Step {:02d}/25] PC=0x{:016x} | Symbol: {} | Insn=0x{:08x} | EL{} PSTATE=0x{:08x} SP=0x{:016x} LR=0x{:016x} X0=0x{:x}",
+                spdlog::info("[Phase 7.2A Step {:03d}/100] PC=0x{:016x} | Symbol: {} | Insn=0x{:08x} | EL{} PSTATE=0x{:08x} SP=0x{:016x} LR=0x{:016x} X0=0x{:x}",
                              step, pc, symbolStr, insn, el, pstate, sp, lr, x0);
 
+                finalPc = pc;
+                finalSymbol = symbolStr;
+                totalStepsExecuted = step;
+                pcFrequency[pc]++;
+
+                if (pcFrequency[pc] >= 5) {
+                    loopDetected = true;
+                    stopReason = fmt::format("Loop detected at PC 0x{:016x} [{}]", pc, symbolStr);
+                    spdlog::warn("[Phase 7.2A] {}", stopReason);
+                    break;
+                }
+
+                if (symbolStr.find("secondary_start_kernel") != std::string::npos) {
+                    stopReason = "Reached secondary_start_kernel() successfully!";
+                    spdlog::info("[Phase 7.2A] {}", stopReason);
+                    break;
+                }
+
+                if (pc == 0x200 || (pc & 0xFFF) == 0x200) {
+                    stopReason = "Trapped to ARM64 Synchronous Exception Vector (0x200)";
+                    spdlog::warn("[Phase 7.2A] {}", stopReason);
+                    break;
+                }
+
                 if (!gdb.sendStep()) {
-                    spdlog::warn("[Phase 7.2] Step {} halted or encountered exception.", step);
+                    stopReason = fmt::format("Single step {} halted or failed", step);
+                    spdlog::warn("[Phase 7.2A] {}", stopReason);
                     break;
                 }
             }
             gdb.selectThread("p01.01");
+
+            // --- Automatic Trace Summary ---
+            spdlog::info("============================================================================");
+            spdlog::info("=== CPU1 Trace Summary (Phase 7.2A) ===");
+            spdlog::info("  Final PC:              0x{:016x}", finalPc);
+            spdlog::info("  Symbol:                {}", finalSymbol);
+            spdlog::info("  Instructions Executed: {}", totalStepsExecuted);
+            spdlog::info("  Loop Detected:         {}", loopDetected ? "YES" : "NO");
+            spdlog::info("  Stop Reason:           {}", stopReason);
+            spdlog::info("============================================================================");
+
 
 
             // --- SMP Validation Probe: Measure vCPU1 and vCPU0 execution over time ---

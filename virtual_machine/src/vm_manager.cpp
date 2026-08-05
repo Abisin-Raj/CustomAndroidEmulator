@@ -164,7 +164,8 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
             m_pipelineManager->getResolver();
         uint64_t scmFuncAddr = resolver.findSymbolAddress("qcom_scm_set_warm_boot_addr");
         if (scmFuncAddr != 0) {
-            constexpr quint16 GDB_PORT = 1234;
+            constexpr quint16 GDB_PORT = 1238;
+
             m_launcher->enableGdbStub(GDB_PORT);
 
             // Destroy any previous interceptor instance
