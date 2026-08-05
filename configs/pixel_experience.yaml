@@ -1,0 +1,6 @@
+gdb:
+  host: "127.0.0.1"
+  port: 1292
+kernel:
+  symbol_map: "C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidEmulator/scratch/System.map.stub"
+  image: "C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidEmulator/scratch/kernel.img"
