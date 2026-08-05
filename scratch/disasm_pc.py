@@ -104,32 +104,32 @@ try:
     s.connect(("127.0.0.1", 1260))
     s.sendall(b"+")
 
-    send_rsp(s, "Z0,ffffff80080dc368,4")
+    send_rsp(s, "Z0,ffffff800a4f2000,4")
     send_rsp(s, "vCont;s:p01.01")
     time.sleep(0.1)
     send_rsp(s, "vCont;c:p01.01")
-    time.sleep(2.0)
-    send_rsp(s, "z0,ffffff80080dc368,4")
-
+    time.sleep(1.5)
+    send_rsp(s, "z0,ffffff800a4f2000,4")
 
     pc = get_reg(s, 32, "p01.01")
     lr = get_reg(s, 30, "p01.01")
     sp = get_reg(s, 31, "p01.01")
-    x0 = get_reg(s, 0, "p01.01")
-    x1 = get_reg(s, 1, "p01.01")
 
     print(f"vCPU0 Current PC=0x{pc:016x} | SP=0x{sp:016x} | LR=0x{lr:016x}", flush=True)
 
-    print(f"=== Disassembling 0x{pc:x} ===", flush=True)
-    mem = get_mem(s, pc, 0x40, "p01.01")
-    if len(mem) == 0x40:
-        for off in range(0, 0x40, 4):
-            addr = pc + off
+    print(f"=== Disassembling Caller @ LR=0x{lr:x} ===", flush=True)
+    mem = get_mem(s, lr - 32, 0x50, "p01.01")
+    if len(mem) == 0x50:
+        for off in range(0, 0x50, 4):
+            addr = (lr - 32) + off
             chunk = mem[off:off+4]
             disasm = list(md.disasm(chunk, addr))
             if disasm:
                 insn = disasm[0]
-                print(f"0x{addr:016x}: {insn.mnemonic}\t{insn.op_str}", flush=True)
+                marker = " <=== RETURN CALLER LR" if addr == lr else ""
+                print(f"0x{addr:016x}: {insn.mnemonic}\t{insn.op_str}{marker}", flush=True)
+
+
 
 
 
