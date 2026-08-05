@@ -104,38 +104,33 @@ try:
     s.connect(("127.0.0.1", 1260))
     s.sendall(b"+")
 
-    send_rsp(s, "Z0,ffffff800888a250,4")
+    send_rsp(s, "Z0,ffffff80080dc368,4")
     send_rsp(s, "vCont;s:p01.01")
     time.sleep(0.1)
     send_rsp(s, "vCont;c:p01.01")
-    time.sleep(1.0)
-    send_rsp(s, "z0,ffffff800888a250,4")
-    set_reg(s, 0, 0, "p01.01")
+    time.sleep(2.0)
+    send_rsp(s, "z0,ffffff80080dc368,4")
 
-    send_rsp(s, "vCont;c:p01.01")
-    time.sleep(5.0)
-    send_rsp(s, "\x03")
 
     pc = get_reg(s, 32, "p01.01")
     lr = get_reg(s, 30, "p01.01")
     sp = get_reg(s, 31, "p01.01")
     x0 = get_reg(s, 0, "p01.01")
     x1 = get_reg(s, 1, "p01.01")
-    x8 = get_reg(s, 8, "p01.01")
+
     print(f"vCPU0 Current PC=0x{pc:016x} | SP=0x{sp:016x} | LR=0x{lr:016x}", flush=True)
-    print(f"  Registers: X0=0x{x0:x} X1=0x{x1:x} X8=0x{x8:x}", flush=True)
 
     print(f"=== Disassembling 0x{pc:x} ===", flush=True)
-    mem = get_mem(s, pc - 32, 0x50, "p01.01")
-    if len(mem) == 0x50:
-        for off in range(0, 0x50, 4):
-            addr = (pc - 32) + off
+    mem = get_mem(s, pc, 0x40, "p01.01")
+    if len(mem) == 0x40:
+        for off in range(0, 0x40, 4):
+            addr = pc + off
             chunk = mem[off:off+4]
             disasm = list(md.disasm(chunk, addr))
             if disasm:
                 insn = disasm[0]
-                marker = " <=== CURRENT vCPU0 PC" if addr == pc else ""
-                print(f"0x{addr:016x}: {insn.mnemonic}\t{insn.op_str}{marker}", flush=True)
+                print(f"0x{addr:016x}: {insn.mnemonic}\t{insn.op_str}", flush=True)
+
 
 
 

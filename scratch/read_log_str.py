@@ -67,20 +67,24 @@ try:
     s.connect(("127.0.0.1", 1272))
     s.sendall(b"+")
 
-    # Step vCPU0 once and unpause for 3.0s
+    # Fast-forward vCPU0 past delay loop to 0xFFFFFF80080DC2A0
+    send_rsp(s, "Z0,ffffff80080dc2a0,4")
     send_rsp(s, "vCont;s:p01.01")
     time.sleep(0.1)
     send_rsp(s, "vCont;c:p01.01")
-    time.sleep(3.0)
-    send_rsp(s, "\x03")
+    time.sleep(2.0)
+    send_rsp(s, "z0,ffffff80080dc2a0,4")
 
-    # Read X0 memory string
-    raw_bytes = get_mem(s, 0xFFFFFF800A958568, 128, "p01.01")
-    log_str = raw_bytes.split(b'\x00')[0].decode(errors='ignore')
+    # Read strings
+    s0 = get_mem(s, 0xFFFFFF800A0B0748, 128, "p01.01").split(b'\x00')[0].decode(errors='ignore')
+    s1 = get_mem(s, 0xFFFFFF800A9317D9, 128, "p01.01").split(b'\x00')[0].decode(errors='ignore')
+
     print(f"\n============================================================================", flush=True)
-    print(f"=== vCPU0 Log Message @ 0xFFFFFF800A958568 ===", flush=True)
-    print(f"  Message: \"{log_str}\"", flush=True)
+    print(f"=== vCPU0 Driver Init Log Message @ 0xFFFFFF80080DC29C ===", flush=True)
+    print(f"  Format String  (X0 = 0xFFFFFF800A0B0748): \"{s0}\"", flush=True)
+    print(f"  Driver String  (X1 = 0xFFFFFF800A9317D9): \"{s1}\"", flush=True)
     print("============================================================================\n", flush=True)
+
 
 
 finally:
