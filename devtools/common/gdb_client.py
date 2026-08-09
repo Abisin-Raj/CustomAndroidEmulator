@@ -19,9 +19,14 @@ class GdbClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.settimeout(5.0)
         self.sock.connect((self.host, self.port))
-        # Send initial Ack
+        # Send initial Ack and drain initial stop response if present
         self.sock.sendall(b"+")
+        try:
+            self.sock.recv(4096)
+        except Exception:
+            pass
         self.logger.info("Connected to GDB stub successfully.")
+
 
     def disconnect(self):
         """Closes the GDB socket."""
@@ -51,13 +56,14 @@ class GdbClient:
                 if not chunk:
                     break
                 response += chunk
-                if "$" in chunk and "#" in chunk:
+                if "$" in response and "#" in response:
                     break
-                if chunk == "+":
+                if response == "+":
                     continue
             except Exception as e:
                 self.logger.error(f"Error reading GDB response: {e}")
                 break
+
 
         # Acknowledge receipt
         self.sock.sendall(b"+")

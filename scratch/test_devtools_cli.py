@@ -10,6 +10,8 @@ my_env["PATH"] = r"C:\msys64\mingw64\bin;C:\msys64\ucrt64\bin;C:\msys64\usr\bin;
 # Add current directory to PYTHONPATH so devtools is discoverable
 my_env["PYTHONPATH"] = r"C:\Users\ABISIN RAJ\Desktop\Projects\CustomAndroidEmulator;" + my_env.get("PYTHONPATH", "")
 
+my_env["PYTHONUNBUFFERED"] = "1"
+
 cmd = [
     qemu_bin,
     "-machine", "virt",
@@ -31,16 +33,15 @@ time.sleep(1.5)
 try:
     print("Running DevTools CLI run phase82...", flush=True)
     cli_cmd = [
-        "python", "-m", "devtools.cli.devtools",
+        r".venv\Scripts\python.exe", "-u", "-m", "devtools.cli.devtools",
         "run", "phase82",
         "--config", "configs/pixel_experience.yaml"
     ]
-    res = subprocess.run(cli_cmd, env=my_env, capture_output=True, text=True)
-    print("CLI STDOUT:")
-    print(res.stdout)
-    print("CLI STDERR:")
-    print(res.stderr)
+
+
+    res = subprocess.run(cli_cmd, env=my_env)
     print(f"CLI Return Code: {res.returncode}")
+
 
 finally:
     proc.terminate()
