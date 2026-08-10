@@ -140,6 +140,14 @@ def main():
 
     args, extra_args = parser.parse_known_args()
 
+def run_analyze_command(trace_dir: str, config_path: str):
+    from devtools.analysis.engine import UnifiedAnalysisEngine
+
+    print(f"[DevTools Offline Analysis] Loading persistent trace: {trace_dir}...", flush=True)
+    engine = UnifiedAnalysisEngine()
+    result = engine.analyze_trace_directory(trace_dir)
+    print("\n" + result.format_report(), flush=True)
+
 def run_trace_command(subcmd: str, session_id: str, config_path: str):
     from devtools.common.session import TraceSession
     from devtools.trace.recorder import BootTraceRecorder
@@ -210,6 +218,11 @@ def main():
     run_parser.add_argument("plugin", type=str, help="Name of the plugin to run")
     run_parser.add_argument("--config", type=str, required=True, help="Path to config YAML file")
 
+    # Analyze offline trace command
+    analyze_offline_parser = subparsers.add_parser("analyze", help="Offline analysis of persistent boot trace directory")
+    analyze_offline_parser.add_argument("trace_dir", type=str, help="Path to persistent trace directory (e.g. traces/boot_test_live)")
+    analyze_offline_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
     # Diagnose command
     diag_parser = subparsers.add_parser("diagnose", help="Automated Blocker Detector & Root-Cause Diagnosis")
     diag_parser.add_argument("--duration", type=float, default=2.0, help="Observation duration in seconds")
@@ -253,6 +266,8 @@ def main():
 
     if args.command == "run":
         run_plugin(args.plugin, args.config, extra_args)
+    elif args.command == "analyze":
+        run_analyze_command(args.trace_dir, getattr(args, "config", "configs/pixel_experience.yaml"))
     elif args.command == "diagnose":
         run_diagnose_command(args.duration, args.cpu, args.config)
     elif args.command == "trace":
@@ -268,6 +283,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
