@@ -140,6 +140,25 @@ def main():
 
     args, extra_args = parser.parse_known_args()
 
+def run_investigate_command(config_path: str):
+    from devtools.common.session import TraceSession
+    from devtools.orchestration.investigator import InvestigationOrchestrator
+
+    config = load_config(config_path) if config_path else {}
+    session = TraceSession(config)
+    gdb_host = config.get("gdb", {}).get("host", "127.0.0.1")
+    gdb_port = config.get("gdb", {}).get("port", 1234)
+    try:
+        session.connect(gdb_host, gdb_port)
+    except Exception as e:
+        logger.error(f"Failed to connect to GDB server: {e}")
+        sys.exit(1)
+
+    orchestrator = InvestigationOrchestrator(session)
+    result = orchestrator.investigate()
+    print("\n" + result.format_report(), flush=True)
+    session.disconnect()
+
 def run_analyze_command(trace_dir: str, config_path: str):
     from devtools.analysis.engine import UnifiedAnalysisEngine
 
@@ -218,6 +237,10 @@ def main():
     run_parser.add_argument("plugin", type=str, help="Name of the plugin to run")
     run_parser.add_argument("--config", type=str, required=True, help="Path to config YAML file")
 
+    # Investigate command
+    inv_parser = subparsers.add_parser("investigate", help="Run complete end-to-end investigation pipeline")
+    inv_parser.add_argument("--config", type=str, default="configs/pixel_experience.yaml", help="Path to config YAML file")
+
     # Analyze offline trace command
     analyze_offline_parser = subparsers.add_parser("analyze", help="Offline analysis of persistent boot trace directory")
     analyze_offline_parser.add_argument("trace_dir", type=str, help="Path to persistent trace directory (e.g. traces/boot_test_live)")
@@ -266,6 +289,8 @@ def main():
 
     if args.command == "run":
         run_plugin(args.plugin, args.config, extra_args)
+    elif args.command == "investigate":
+        run_investigate_command(args.config)
     elif args.command == "analyze":
         run_analyze_command(args.trace_dir, getattr(args, "config", "configs/pixel_experience.yaml"))
     elif args.command == "diagnose":
@@ -283,6 +308,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
