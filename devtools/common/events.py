@@ -67,4 +67,40 @@ class MemoryAccessEvent:
         out.append(f"Caller: {self.call_site}")
         return "\n".join(out)
 
+class MMIOAccessEvent:
+    """
+    Structured event payload captured when an MMIO read/write operation occurs inside a monitored physical range.
+    """
+    def __init__(self, access_type: str, cpu_id: int, pc: int, symbol: str,
+                 va: int, pa: int, size: int, value: int, region_name: str,
+                 instruction: str, call_site: str, timestamp: float):
+        self.access_type = access_type
+        self.cpu_id = cpu_id
+        self.pc = pc
+        self.symbol = symbol
+        self.va = va
+        self.pa = pa
+        self.size = size
+        self.value = value
+        self.region_name = region_name
+        self.instruction = instruction
+        self.call_site = call_site
+        self.timestamp = timestamp
+
+    def format_event(self) -> str:
+        out = []
+        out.append(f"[{self.access_type}]")
+        out.append(f"CPU:         vCPU{self.cpu_id}")
+        out.append(f"PC:          0x{self.pc:016X}")
+        out.append(f"Symbol:      {self.symbol}")
+        out.append(f"VA:          0x{self.va:016X}")
+        out.append(f"PA:          0x{self.pa:08X}")
+        out.append(f"Size:        {self.size} byte(s)")
+        out.append(f"Value:       0x{self.value:X}")
+        out.append(f"Region:      {self.region_name}")
+        out.append(f"Instruction: {self.instruction}")
+        out.append(f"Caller:      {self.call_site}")
+        return "\n".join(out)
+
+
 
