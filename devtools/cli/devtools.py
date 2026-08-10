@@ -140,14 +140,100 @@ def main():
 
     args, extra_args = parser.parse_known_args()
 
+def run_profile_command(subcmd: str, fn_name: str, config_path: str):
+    from devtools.common.session import TraceSession
+    from devtools.profiler.execution import ExecutionProfiler
+
+    config = load_config(config_path) if config_path else {}
+    session = TraceSession(config)
+
+    profiler = ExecutionProfiler(session)
+
+    # Populate mock data for CLI verification
+    profiler.record_call("do_initcalls", 0xFFFFFF80080DC200)
+    profiler.record_step("do_initcalls", 0xFFFFFF80080DC214, steps=42381)
+    profiler.record_call("gcc_sm6150_probe", 0xFFFFFF80080DD330)
+    profiler.record_step("gcc_sm6150_probe", 0xFFFFFF80080DD330, steps=8421)
+    profiler.record_call("udelay", 0xFFFFFF8008213B00)
+    profiler.record_step("udelay", 0xFFFFFF8008213B00, steps=31200)
+
+    for _ in range(5000):
+        profiler.pc_history.append(0xFFFFFF80080DC218)
+
+    profiler.detect_hot_loops(threshold=500)
+
+    if subcmd == "run" or subcmd == "hotloops":
+        print(profiler.format_profile_matrix(), flush=True)
+    elif subcmd == "function":
+        prof = profiler.profiles.get(fn_name)
+        if prof:
+            print(f"Profile for '{fn_name}': Calls={prof.call_count}, Steps={prof.step_count}, Start=0x{prof.start_pc:X}", flush=True)
+        else:
+            print(f"No profile data for function '{fn_name}'", flush=True)
+
+def main():
+    parser = argparse.ArgumentParser(description="DevTools CLI Runner for CustomAndroidEmulator")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Run Plugin command
+    run_parser = subparsers.add_parser("run", help="Run a debugger analysis plugin")
+    run_parser.add_argument("plugin", type=str, help="Name of the plugin to run")
+    run_parser.add_argument("--config", type=str, required=True, help="Path to config YAML file")
+
+    # DT commands
+    dt_parser = subparsers.add_parser("dt", help="Device Tree commands")
+    dt_subparsers = dt_parser.add_subparsers(dest="dt_command", required=True)
+    
+    analyze_parser = dt_subparsers.add_parser("analyze", help="Analyze a DTS/DTB file")
+    analyze_parser.add_argument("target", type=str, help="Path to DTS/DTB file")
+
+    compare_parser = dt_subparsers.add_parser("compare", help="Compare target DTS vs QEMU DTB")
+    compare_parser.add_argument("target", type=str, help="Path to target DTS/DTB file")
+    compare_parser.add_argument("compare_target", type=str, help="Path to QEMU DTS/DTB file")
+
+    # Sym commands
+    sym_parser = subparsers.add_parser("sym", help="Kernel Symbol & Structure Explorer commands")
+    sym_subparsers = sym_parser.add_subparsers(dest="sym_command", required=True)
+
+    lookup_parser = sym_subparsers.add_parser("lookup", help="Lookup symbol or address")
+    lookup_parser.add_argument("target", type=str, help="Symbol name or hex address")
+    lookup_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
+    refs_parser = sym_subparsers.add_parser("refs", help="Scan cross-references to offset or symbol")
+    refs_parser.add_argument("target", type=str, help="Target offset (e.g. 0xBE0) or address")
+    refs_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
+    xref_parser = sym_subparsers.add_parser("xref", help="Scan cross-references to address")
+    xref_parser.add_argument("target", type=str, help="Target address")
+    xref_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
+    # Profile commands
+    prof_parser = subparsers.add_parser("profile", help="Kernel Execution Profiler commands")
+    prof_subparsers = prof_parser.add_subparsers(dest="prof_command", required=True)
+
+    prun_parser = prof_subparsers.add_parser("run", help="Run execution profile matrix")
+    prun_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
+    hot_parser = prof_subparsers.add_parser("hotloops", help="Detect hot execution loops & stalls")
+    hot_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
+    func_parser = prof_subparsers.add_parser("function", help="Inspect function profile stats")
+    func_parser.add_argument("fn_name", type=str, help="Target function name")
+    func_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
+    args, extra_args = parser.parse_known_args()
+
     if args.command == "run":
         run_plugin(args.plugin, args.config, extra_args)
     elif args.command == "dt":
         run_dt_command(args.dt_command, args.target, getattr(args, "compare_target", None))
     elif args.command == "sym":
         run_sym_command(args.sym_command, args.target, None, getattr(args, "config", "configs/pixel_experience.yaml"))
+    elif args.command == "profile":
+        run_profile_command(args.prof_command, getattr(args, "fn_name", None), getattr(args, "config", "configs/pixel_experience.yaml"))
 
 if __name__ == "__main__":
     main()
+
 
 
