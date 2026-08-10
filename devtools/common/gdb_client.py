@@ -88,11 +88,15 @@ class GdbClient:
         self.select_thread(thread_id, "g")
         resp = self.send_packet(f"p{reg_num:x}")
         if resp and not resp.startswith("E"):
-            # Hex values are returned in little-endian order
-            val_bytes = bytes.fromhex(resp[:16])
-            if len(val_bytes) == 8:
-                return struct.unpack("<Q", val_bytes)[0]
+            try:
+                # Hex values are returned in little-endian order
+                val_bytes = bytes.fromhex(resp[:16])
+                if len(val_bytes) == 8:
+                    return struct.unpack("<Q", val_bytes)[0]
+            except Exception:
+                pass
         return 0
+
 
     def write_register(self, reg_num: int, val: int, thread_id="p01.01") -> bool:
         """Writes a register value to GDB."""
