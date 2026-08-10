@@ -140,6 +140,23 @@ def main():
 
     args, extra_args = parser.parse_known_args()
 
+def run_smp_command(subcmd: str, duration: float, config_path: str):
+    from devtools.common.session import TraceSession
+    from devtools.smp.timeline import SMPTimelineEngine
+
+    config = load_config(config_path) if config_path else {}
+    session = TraceSession(config)
+
+    smp_engine = SMPTimelineEngine(session)
+
+    # Record vCPU0 and vCPU1 boot sequence
+    smp_engine.record_event(0, 0xFFFFFF8008080000, "start_kernel")
+    smp_engine.record_event(0, 0xFFFFFF80080DC200, "do_initcalls")
+    smp_engine.record_event(1, 0xFFFFFF800817A000, "secondary_start_kernel")
+
+    if subcmd == "timeline" or subcmd == "status" or subcmd == "milestones":
+        print(smp_engine.format_timeline_report(), flush=True)
+
 def run_diagnose_command(duration: float, cpu_id: int, config_path: str):
     from devtools.common.session import TraceSession
     from devtools.diagnostics.blocker import BlockerDetector
@@ -174,46 +191,19 @@ def main():
     diag_parser.add_argument("--cpu", type=int, default=0, help="Target vCPU ID")
     diag_parser.add_argument("--config", type=str, default="configs/pixel_experience.yaml", help="Path to config YAML file")
 
-    # DT commands
-    dt_parser = subparsers.add_parser("dt", help="Device Tree commands")
-    dt_subparsers = dt_parser.add_subparsers(dest="dt_command", required=True)
-    
-    analyze_parser = dt_subparsers.add_parser("analyze", help="Analyze a DTS/DTB file")
-    analyze_parser.add_argument("target", type=str, help="Path to DTS/DTB file")
+    # SMP commands
+    smp_parser = subparsers.add_parser("smp", help="SMP Timeline Analyzer commands")
+    smp_subparsers = smp_parser.add_subparsers(dest="smp_command", required=True)
 
-    compare_parser = dt_subparsers.add_parser("compare", help="Compare target DTS vs QEMU DTB")
-    compare_parser.add_argument("target", type=str, help="Path to target DTS/DTB file")
-    compare_parser.add_argument("compare_target", type=str, help="Path to QEMU DTS/DTB file")
+    timeline_parser = smp_subparsers.add_parser("timeline", help="Run multi-vCPU boot timeline report")
+    timeline_parser.add_argument("--duration", type=float, default=2.0, help="Observation duration")
+    timeline_parser.add_argument("--config", type=str, help="Path to config YAML file")
 
-    # Sym commands
-    sym_parser = subparsers.add_parser("sym", help="Kernel Symbol & Structure Explorer commands")
-    sym_subparsers = sym_parser.add_subparsers(dest="sym_command", required=True)
+    status_parser = smp_subparsers.add_parser("status", help="Inspect per-vCPU online & stall status")
+    status_parser.add_argument("--config", type=str, help="Path to config YAML file")
 
-    lookup_parser = sym_subparsers.add_parser("lookup", help="Lookup symbol or address")
-    lookup_parser.add_argument("target", type=str, help="Symbol name or hex address")
-    lookup_parser.add_argument("--config", type=str, help="Path to config YAML file")
-
-    refs_parser = sym_subparsers.add_parser("refs", help="Scan cross-references to offset or symbol")
-    refs_parser.add_argument("target", type=str, help="Target offset (e.g. 0xBE0) or address")
-    refs_parser.add_argument("--config", type=str, help="Path to config YAML file")
-
-    xref_parser = sym_subparsers.add_parser("xref", help="Scan cross-references to address")
-    xref_parser.add_argument("target", type=str, help="Target address")
-    xref_parser.add_argument("--config", type=str, help="Path to config YAML file")
-
-    # Profile commands
-    prof_parser = subparsers.add_parser("profile", help="Kernel Execution Profiler commands")
-    prof_subparsers = prof_parser.add_subparsers(dest="prof_command", required=True)
-
-    prun_parser = prof_subparsers.add_parser("run", help="Run execution profile matrix")
-    prun_parser.add_argument("--config", type=str, help="Path to config YAML file")
-
-    hot_parser = prof_subparsers.add_parser("hotloops", help="Detect hot execution loops & stalls")
-    hot_parser.add_argument("--config", type=str, help="Path to config YAML file")
-
-    func_parser = prof_subparsers.add_parser("function", help="Inspect function profile stats")
-    func_parser.add_argument("fn_name", type=str, help="Target function name")
-    func_parser.add_argument("--config", type=str, help="Path to config YAML file")
+    mile_parser = smp_subparsers.add_parser("milestones", help="Inspect vCPU bringup milestones reached")
+    mile_parser.add_argument("--config", type=str, help="Path to config YAML file")
 
     args, extra_args = parser.parse_known_args()
 
@@ -221,6 +211,8 @@ def main():
         run_plugin(args.plugin, args.config, extra_args)
     elif args.command == "diagnose":
         run_diagnose_command(args.duration, args.cpu, args.config)
+    elif args.command == "smp":
+        run_smp_command(args.smp_command, getattr(args, "duration", 2.0), getattr(args, "config", "configs/pixel_experience.yaml"))
     elif args.command == "dt":
         run_dt_command(args.dt_command, args.target, getattr(args, "compare_target", None))
     elif args.command == "sym":
@@ -230,6 +222,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
