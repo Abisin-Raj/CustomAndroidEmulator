@@ -140,36 +140,24 @@ def main():
 
     args, extra_args = parser.parse_known_args()
 
-def run_profile_command(subcmd: str, fn_name: str, config_path: str):
+def run_diagnose_command(duration: float, cpu_id: int, config_path: str):
     from devtools.common.session import TraceSession
-    from devtools.profiler.execution import ExecutionProfiler
+    from devtools.diagnostics.blocker import BlockerDetector
 
     config = load_config(config_path) if config_path else {}
     session = TraceSession(config)
+    gdb_host = config.get("gdb", {}).get("host", "127.0.0.1")
+    gdb_port = config.get("gdb", {}).get("port", 1234)
+    try:
+        session.connect(gdb_host, gdb_port)
+    except Exception as e:
+        logger.error(f"Failed to connect to GDB server: {e}")
+        sys.exit(1)
 
-    profiler = ExecutionProfiler(session)
-
-    # Populate mock data for CLI verification
-    profiler.record_call("do_initcalls", 0xFFFFFF80080DC200)
-    profiler.record_step("do_initcalls", 0xFFFFFF80080DC214, steps=42381)
-    profiler.record_call("gcc_sm6150_probe", 0xFFFFFF80080DD330)
-    profiler.record_step("gcc_sm6150_probe", 0xFFFFFF80080DD330, steps=8421)
-    profiler.record_call("udelay", 0xFFFFFF8008213B00)
-    profiler.record_step("udelay", 0xFFFFFF8008213B00, steps=31200)
-
-    for _ in range(5000):
-        profiler.pc_history.append(0xFFFFFF80080DC218)
-
-    profiler.detect_hot_loops(threshold=500)
-
-    if subcmd == "run" or subcmd == "hotloops":
-        print(profiler.format_profile_matrix(), flush=True)
-    elif subcmd == "function":
-        prof = profiler.profiles.get(fn_name)
-        if prof:
-            print(f"Profile for '{fn_name}': Calls={prof.call_count}, Steps={prof.step_count}, Start=0x{prof.start_pc:X}", flush=True)
-        else:
-            print(f"No profile data for function '{fn_name}'", flush=True)
+    detector = BlockerDetector(session)
+    analysis = detector.observe_and_diagnose(duration_sec=duration, cpu_id=cpu_id)
+    print(analysis.format_report(), flush=True)
+    session.disconnect()
 
 def main():
     parser = argparse.ArgumentParser(description="DevTools CLI Runner for CustomAndroidEmulator")
@@ -179,6 +167,12 @@ def main():
     run_parser = subparsers.add_parser("run", help="Run a debugger analysis plugin")
     run_parser.add_argument("plugin", type=str, help="Name of the plugin to run")
     run_parser.add_argument("--config", type=str, required=True, help="Path to config YAML file")
+
+    # Diagnose command
+    diag_parser = subparsers.add_parser("diagnose", help="Automated Blocker Detector & Root-Cause Diagnosis")
+    diag_parser.add_argument("--duration", type=float, default=2.0, help="Observation duration in seconds")
+    diag_parser.add_argument("--cpu", type=int, default=0, help="Target vCPU ID")
+    diag_parser.add_argument("--config", type=str, default="configs/pixel_experience.yaml", help="Path to config YAML file")
 
     # DT commands
     dt_parser = subparsers.add_parser("dt", help="Device Tree commands")
@@ -225,6 +219,8 @@ def main():
 
     if args.command == "run":
         run_plugin(args.plugin, args.config, extra_args)
+    elif args.command == "diagnose":
+        run_diagnose_command(args.duration, args.cpu, args.config)
     elif args.command == "dt":
         run_dt_command(args.dt_command, args.target, getattr(args, "compare_target", None))
     elif args.command == "sym":
@@ -234,6 +230,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
