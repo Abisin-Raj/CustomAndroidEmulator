@@ -38,3 +38,33 @@ class EventDispatcher:
 class ExceptionEvent:
     pass
 
+class MemoryAccessEvent:
+    """
+    Structured event payload captured when a memory watchpoint is hit.
+    """
+    def __init__(self, access_type: str, cpu_id: int, pc: int, symbol: str,
+                 va: int, pa: str, value: int, registers: dict, call_site: str, timestamp: float):
+        self.access_type = access_type
+        self.cpu_id = cpu_id
+        self.pc = pc
+        self.symbol = symbol
+        self.va = va
+        self.pa = pa
+        self.value = value
+        self.registers = registers
+        self.call_site = call_site
+        self.timestamp = timestamp
+
+    def format_event(self) -> str:
+        out = []
+        out.append(f"[{self.access_type}]")
+        out.append(f"CPU:    vCPU{self.cpu_id}")
+        out.append(f"PC:     0x{self.pc:016X}")
+        out.append(f"Symbol: {self.symbol}")
+        out.append(f"VA:     0x{self.va:016X}")
+        out.append(f"PA:     {self.pa}")
+        out.append(f"Value:  0x{self.value:X}")
+        out.append(f"Caller: {self.call_site}")
+        return "\n".join(out)
+
+

@@ -19,6 +19,7 @@ class TraceSession:
         from devtools.common.memory import MemoryService
         from devtools.common.disasm import DisassemblerService
         from devtools.trace.engine import TraceEngine
+        from devtools.common.watchpoints import MemoryWatchpointTracer
         self.gdb = None
         self.symbols = SymbolService(self)
         self.snapshots = RegisterSnapshotEngine(self)
@@ -27,9 +28,11 @@ class TraceSession:
         self.memory = MemoryService(self)
         self.disasm = DisassemblerService(self)
         self.trace = TraceEngine(self)
+        self.watchpoints = MemoryWatchpointTracer(self)
         self.timeline = None
         self.report = None
         self.logger = logging.getLogger("devtools.session")
+
 
 
 
