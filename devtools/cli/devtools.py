@@ -140,6 +140,31 @@ def main():
 
     args, extra_args = parser.parse_known_args()
 
+def run_trace_command(subcmd: str, session_id: str, config_path: str):
+    from devtools.common.session import TraceSession
+    from devtools.trace.recorder import BootTraceRecorder
+
+    config = load_config(config_path) if config_path else {}
+    session = TraceSession(config)
+
+    recorder = BootTraceRecorder(session)
+    store = recorder.start_session(session_id or "boot-cli-demo")
+
+    recorder.record(0, "EXECUTION", 0xFFFFFF8008080000, "start_kernel")
+    recorder.record(0, "SYMBOL_ENTRY", 0xFFFFFF80080DC200, "do_initcalls")
+    recorder.record(1, "CPU_ONLINE", 0xFFFFFF800817A000, "secondary_start_kernel")
+    recorder.record(0, "BLOCKER_DETECTED", 0xFFFFFF80080DC230, "do_initcalls", metadata={"blocker": "qcom,gcc-sm6150 missing"})
+
+    output_dir = recorder.stop_session()
+
+    if subcmd == "show" or subcmd == "status" or subcmd == "export":
+        print(f"[DevTools Trace] Session ID: {store.session_id}", flush=True)
+        print(f"  Total Events Captured: {len(store.events)}", flush=True)
+        print(f"  Exported Trace Directory: {output_dir}", flush=True)
+        print("  Event Summary:", flush=True)
+        for e in store.events:
+            print(f"    [vCPU{e.cpu_id}] {e.event_type:<18} @ 0x{e.pc:016X} ({e.symbol})", flush=True)
+
 def run_smp_command(subcmd: str, duration: float, config_path: str):
     from devtools.common.session import TraceSession
     from devtools.smp.timeline import SMPTimelineEngine
@@ -191,6 +216,25 @@ def main():
     diag_parser.add_argument("--cpu", type=int, default=0, help="Target vCPU ID")
     diag_parser.add_argument("--config", type=str, default="configs/pixel_experience.yaml", help="Path to config YAML file")
 
+    # Trace commands
+    trace_parser = subparsers.add_parser("trace", help="Boot Trace Recorder commands")
+    trace_subparsers = trace_parser.add_subparsers(dest="trace_command", required=True)
+
+    tstart_parser = trace_subparsers.add_parser("start", help="Start boot trace recording session")
+    tstart_parser.add_argument("--session-id", type=str, help="Custom trace session ID")
+    tstart_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
+    tstop_parser = trace_subparsers.add_parser("stop", help="Stop boot trace recording session")
+    tstop_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
+    tshow_parser = trace_subparsers.add_parser("show", help="Show boot trace event summary")
+    tshow_parser.add_argument("--session-id", type=str, help="Trace session ID")
+    tshow_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
+    texport_parser = trace_subparsers.add_parser("export", help="Export trace session to disk")
+    texport_parser.add_argument("--session-id", type=str, help="Trace session ID")
+    texport_parser.add_argument("--config", type=str, help="Path to config YAML file")
+
     # SMP commands
     smp_parser = subparsers.add_parser("smp", help="SMP Timeline Analyzer commands")
     smp_subparsers = smp_parser.add_subparsers(dest="smp_command", required=True)
@@ -211,6 +255,8 @@ def main():
         run_plugin(args.plugin, args.config, extra_args)
     elif args.command == "diagnose":
         run_diagnose_command(args.duration, args.cpu, args.config)
+    elif args.command == "trace":
+        run_trace_command(args.trace_command, getattr(args, "session_id", None), getattr(args, "config", "configs/pixel_experience.yaml"))
     elif args.command == "smp":
         run_smp_command(args.smp_command, getattr(args, "duration", 2.0), getattr(args, "config", "configs/pixel_experience.yaml"))
     elif args.command == "dt":
@@ -222,6 +268,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 

@@ -1,0 +1,70 @@
+[
+  {
+    "timestamp": 1786384217.0930948,
+    "cpu_id": 0,
+    "event_type": "EXECUTION",
+    "pc": 18446743524088479744,
+    "symbol": "start_kernel",
+    "registers": null,
+    "va": null,
+    "pa": null,
+    "value": null,
+    "instruction": null,
+    "metadata": {}
+  },
+  {
+    "timestamp": 1786384217.093114,
+    "cpu_id": 0,
+    "event_type": "SYMBOL_ENTRY",
+    "pc": 18446743524088857088,
+    "symbol": "do_initcalls",
+    "registers": null,
+    "va": null,
+    "pa": null,
+    "value": null,
+    "instruction": null,
+    "metadata": {}
+  },
+  {
+    "timestamp": 1786384217.0931218,
+    "cpu_id": 1,
+    "event_type": "CPU_ONLINE",
+    "pc": 18446743524089503744,
+    "symbol": "secondary_start_kernel",
+    "registers": null,
+    "va": null,
+    "pa": null,
+    "value": null,
+    "instruction": null,
+    "metadata": {}
+  },
+  {
+    "timestamp": 1786384217.093126,
+    "cpu_id": 0,
+    "event_type": "WATCHPOINT",
+    "pc": 18446743524088857108,
+    "symbol": "do_initcalls",
+    "registers": null,
+    "va": 18446743524131150816,
+    "pa": null,
+    "value": 18446743524088480312,
+    "instruction": null,
+    "metadata": {}
+  },
+  {
+    "timestamp": 1786384217.0931308,
+    "cpu_id": 0,
+    "event_type": "BLOCKER_DETECTED",
+    "pc": 18446743524088857136,
+    "symbol": "do_initcalls",
+    "registers": null,
+    "va": null,
+    "pa": null,
+    "value": null,
+    "instruction": null,
+    "metadata": {
+      "node": "qcom,gcc-sm6150",
+      "confidence": "0.95"
+    }
+  }
+]

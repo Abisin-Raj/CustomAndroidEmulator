@@ -1,0 +1,56 @@
+[
+  {
+    "timestamp": 1786384220.4878726,
+    "cpu_id": 0,
+    "event_type": "EXECUTION",
+    "pc": 18446743524088479744,
+    "symbol": "start_kernel",
+    "registers": null,
+    "va": null,
+    "pa": null,
+    "value": null,
+    "instruction": null,
+    "metadata": {}
+  },
+  {
+    "timestamp": 1786384220.4878953,
+    "cpu_id": 0,
+    "event_type": "SYMBOL_ENTRY",
+    "pc": 18446743524088857088,
+    "symbol": "do_initcalls",
+    "registers": null,
+    "va": null,
+    "pa": null,
+    "value": null,
+    "instruction": null,
+    "metadata": {}
+  },
+  {
+    "timestamp": 1786384220.4878993,
+    "cpu_id": 1,
+    "event_type": "CPU_ONLINE",
+    "pc": 18446743524089503744,
+    "symbol": "secondary_start_kernel",
+    "registers": null,
+    "va": null,
+    "pa": null,
+    "value": null,
+    "instruction": null,
+    "metadata": {}
+  },
+  {
+    "timestamp": 1786384220.4879014,
+    "cpu_id": 0,
+    "event_type": "BLOCKER_DETECTED",
+    "pc": 18446743524088857136,
+    "symbol": "do_initcalls",
+    "registers": null,
+    "va": null,
+    "pa": null,
+    "value": null,
+    "instruction": null,
+    "metadata": {
+      "blocker": "qcom,gcc-sm6150 missing"
+    }
+  }
+]
