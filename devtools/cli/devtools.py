@@ -76,6 +76,24 @@ def run_plugin(plugin_name: str, config_path: str, extra_args):
     logger.info(f"Plugin completed with exit code: {exit_code}")
     sys.exit(exit_code)
 
+def run_dt_command(subcmd: str, target: str, compare_target: str):
+    from devtools.dt.parser import DTSParser
+    from devtools.dt.comparator import DeviceTreeComparator
+
+    if subcmd == "analyze":
+        print(f"[DevTools CLI] Analyzing Device Tree: {target}...", flush=True)
+        inventory = DTSParser.parse_file(target)
+        print(f"Extracted {len(inventory.nodes)} nodes and {len(inventory.compatible_map)} compatible mappings.", flush=True)
+        for node in inventory.nodes:
+            if node.compatible:
+                print(f"  Node: {node.name:<30} | Compatible: {', '.join(node.compatible)}", flush=True)
+    elif subcmd == "compare":
+        print(f"[DevTools CLI] Comparing Target '{target}' vs QEMU '{compare_target}'...", flush=True)
+        target_inv = DTSParser.parse_file(target)
+        qemu_inv = DTSParser.parse_file(compare_target)
+        diff = DeviceTreeComparator.compare(target_inv, qemu_inv, target_name=target, qemu_name=compare_target)
+        print(diff.format_report(), flush=True)
+
 def main():
     parser = argparse.ArgumentParser(description="DevTools CLI Runner for CustomAndroidEmulator")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -85,10 +103,24 @@ def main():
     run_parser.add_argument("plugin", type=str, help="Name of the plugin to run")
     run_parser.add_argument("--config", type=str, required=True, help="Path to config YAML file")
 
+    # DT commands
+    dt_parser = subparsers.add_parser("dt", help="Device Tree commands")
+    dt_subparsers = dt_parser.add_subparsers(dest="dt_command", required=True)
+    
+    analyze_parser = dt_subparsers.add_parser("analyze", help="Analyze a DTS/DTB file")
+    analyze_parser.add_argument("target", type=str, help="Path to DTS/DTB file")
+
+    compare_parser = dt_subparsers.add_parser("compare", help="Compare target DTS vs QEMU DTB")
+    compare_parser.add_argument("target", type=str, help="Path to target DTS/DTB file")
+    compare_parser.add_argument("compare_target", type=str, help="Path to QEMU DTS/DTB file")
+
     args, extra_args = parser.parse_known_args()
 
     if args.command == "run":
         run_plugin(args.plugin, args.config, extra_args)
+    elif args.command == "dt":
+        run_dt_command(args.dt_command, args.target, getattr(args, "compare_target", None))
 
 if __name__ == "__main__":
     main()
+
