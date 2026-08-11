@@ -135,10 +135,25 @@ hardware:
         default_value: '0x376CD8B0'
         constraints: []
         evidence:
-        - source: DISASSEMBLY
-          confidence: DERIVED
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
           description: sdhci_msm_probe capabilities read
-          reference: phase1020_sdhci_contract_report.md
+          reference: phase1021_sdhci_runtime_report.md
+      '0x0024':
+        offset: '0x0024'
+        name: SDHCI_PRESENT_STATE
+        access_type: READ
+        default_value: '0x01F70000'
+        constraints:
+        - expression: bit_16 == 1 (card_inserted)
+          description: Card inserted state
+          mask: '0x10000'
+          expected_value: '0x10000'
+        evidence:
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: sdhci_msm_probe present state check
+          reference: phase1021_sdhci_runtime_report.md
       '0x010C':
         offset: '0x010C'
         name: SDHCI_MSM_VENDOR_SPEC
@@ -146,19 +161,11 @@ hardware:
         default_value: '0x00000000'
         constraints: []
         evidence:
-        - source: DISASSEMBLY
-          confidence: DERIVED
-          description: sdhci_msm_probe vendor spec setup
-          reference: phase1020_sdhci_contract_report.md
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: sdhci_msm_probe vendor spec access
+          reference: phase1021_sdhci_runtime_report.md
     properties:
-      cmdq_mem_base: '0x007C5000'
-      cmdq_mem_size: '0x00001000'
-      cmdq_ice_base: '0x007C8000'
-      cmdq_ice_size: '0x00008000'
       bus_width: 8
       nonremovable: true
-    evidence:
-    - source: DTB
-      confidence: EXACT
-      description: DT node /soc/sdhci@7c4000 compatible = qcom,sdhci-msm-v5
-      reference: original_kernel.dts:L1143
+    evidence: []
