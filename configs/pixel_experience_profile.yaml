@@ -133,16 +133,27 @@ hardware:
         name: SPM_STS0
         access_type: READ
         default_value: '0x00000001'
+        constraints:
+        - expression: bit_0 == 1 (spm_ready)
+          description: SPM Ready state
+          mask: '0x1'
+          expected_value: '0x1'
+        evidence:
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: msm_spm_probe status check
+          reference: phase1027_spm_runtime_report.md
+      '0x000C':
+        offset: '0x000C'
+        name: SAW2_CFG
+        access_type: READ_WRITE
+        default_value: '0x00000001'
         constraints: []
         evidence:
-        - source: DISASSEMBLY
-          confidence: DERIVED
-          description: msm_spm_probe status check
-          reference: phase1026_spm_contract_report.md
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: msm_spm_probe SAW2 config access
+          reference: phase1027_spm_runtime_report.md
     properties:
       saw_name: saw
-    evidence:
-    - source: DTB
-      confidence: EXACT
-      description: DT node /soc/spm@17900000 compatible = qcom,spm-v2.1
-      reference: original_kernel.dts:L22100
+    evidence: []
