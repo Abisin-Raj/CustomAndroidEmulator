@@ -1,0 +1,123 @@
+rom:
+  name: PixelExperience_violet
+  kernel: 4.14.117
+  arch: aarch64
+hardware:
+  gcc:
+    name: gcc
+    compatible: qcom,gcc-sm6150
+    mmio_base: '0x00100000'
+    mmio_size: '0x001F0000'
+    irq: null
+    registers:
+      '0x0000':
+        offset: '0x0000'
+        name: GCC_REVISION
+        access_type: READ
+        default_value: '0x10000000'
+        constraints: []
+        evidence:
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: gcc_sm6150_probe HW ID check
+          reference: phase92_register_semantics_report.md
+      '0x0180':
+        offset: '0x0180'
+        name: GCC_GP1_CBCR
+        access_type: READ_WRITE
+        default_value: '0x00000000'
+        constraints:
+        - expression: bit_31 == 0
+          description: CLK_OFF bit 31 must be zero
+          mask: '0x80000000'
+          expected_value: '0x0'
+        evidence:
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: CLK_OFF polling loop
+          reference: phase92_register_semantics_report.md
+      '0x0184':
+        offset: '0x0184'
+        name: GCC_GP2_CBCR
+        access_type: READ_WRITE
+        default_value: '0x00000000'
+        constraints:
+        - expression: bit_31 == 0
+          description: CLK_OFF bit 31 must be zero
+          mask: '0x80000000'
+          expected_value: '0x0'
+        evidence:
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: CLK_OFF polling loop
+          reference: phase92_register_semantics_report.md
+    properties: {}
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /soc/clock-controller@100000 compatible = qcom,gcc-sm6150,
+        syscon
+      reference: original_kernel.dts:L548
+  timer:
+    name: timer
+    compatible: arm,armv8-timer
+    mmio_base: null
+    mmio_size: null
+    irq: null
+    registers: {}
+    properties:
+      clock_frequency: 19200000
+      interrupts: PPI 13, 14, 11, 10
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /timer clock-frequency = <19200000> (19.2 MHz)
+      reference: original_kernel.dts:L442
+  psci:
+    name: psci
+    compatible: arm,psci-1.0
+    mmio_base: null
+    mmio_size: null
+    irq: null
+    registers: {}
+    properties:
+      method: smc
+      cpu_on: '0xC4000003'
+      cpu_off: '0x84000002'
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /psci compatible = arm,psci-1.0 method = smc
+      reference: original_kernel.dts:L22148
+  rpmh_rsc:
+    name: rpmh_rsc
+    compatible: qcom,tcs-drv
+    mmio_base: '0x18220000'
+    mmio_size: '0x00000100'
+    irq: 5
+    registers: {}
+    properties:
+      tcs_base: '0x18220D00'
+      tcs_size: '0x3000'
+      drv_id: 2
+      channels: 8
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /soc/mailbox@18220000 compatible = qcom,tcs-drv
+      reference: original_kernel.dts:L1050
+  rpmh_clock:
+    name: rpmh_clock
+    compatible: qcom,rpmh-clk-sm6150
+    mmio_base: null
+    mmio_size: null
+    irq: null
+    registers: {}
+    properties:
+      mailbox: apps_rsc
+      clock_cells: 1
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /qcom,rpmhclk compatible = qcom,rpmh-clk-sm6150
+      reference: original_kernel.dts:L532
