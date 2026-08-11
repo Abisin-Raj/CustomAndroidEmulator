@@ -121,39 +121,33 @@ hardware:
       confidence: EXACT
       description: DT node /qcom,rpmhclk compatible = qcom,rpmh-clk-sm6150
       reference: original_kernel.dts:L532
-  spm_qcom:
-    name: spm_qcom
-    compatible: qcom,spm-v2.1
-    mmio_base: '0x17900000'
-    mmio_size: '0x00001000'
-    irq: null
+  spmi_pmic_arb:
+    name: spmi_pmic_arb
+    compatible: qcom,spmi-pmic-arb
+    mmio_base: '0x0C440000'
+    mmio_size: '0x00001100'
+    irq: 513
     registers:
-      '0x0004':
-        offset: '0x0004'
-        name: SPM_STS0
+      '0x0000':
+        offset: '0x0000'
+        name: PMIC_ARB_VERSION
         access_type: READ
-        default_value: '0x00000001'
-        constraints:
-        - expression: bit_0 == 1 (spm_ready)
-          description: SPM Ready state
-          mask: '0x1'
-          expected_value: '0x1'
-        evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: msm_spm_probe status check
-          reference: phase1027_spm_runtime_report.md
-      '0x000C':
-        offset: '0x000C'
-        name: SAW2_CFG
-        access_type: READ_WRITE
-        default_value: '0x00000001'
+        default_value: '0x50000000'
         constraints: []
         evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: msm_spm_probe SAW2 config access
-          reference: phase1027_spm_runtime_report.md
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: spmi_pmic_arb_probe v5 version check
+          reference: phase1029_spmi_contract_report.md
     properties:
-      saw_name: saw
-    evidence: []
+      ee: 0
+      channel: 0
+      chnls_base: 207618048
+      obsrvr_base: 241172480
+      intr_base: 242221056
+      cnfg_base: 205561856
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /soc/qcom,spmi@c440000 compatible = qcom,spmi-pmic-arb
+      reference: original_kernel.dts:L1396
