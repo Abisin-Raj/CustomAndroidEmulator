@@ -95,35 +95,7 @@ hardware:
     mmio_base: '0x18220000'
     mmio_size: '0x00000100'
     irq: 5
-    registers:
-      '0x0000':
-        offset: '0x0000'
-        name: RSC_DRV_IRQ_STATUS
-        access_type: READ
-        default_value: '0x00000000'
-        constraints:
-        - expression: bit_n == 1 on completion
-          description: TCS completion IRQ status
-        evidence:
-        - source: RUNTIME_TRACE
-          confidence: DERIVED
-          description: rsc_drv_irq_handler check
-          reference: phase1012_rpmh_runtime_report.md
-      '0x0D04':
-        offset: '0x0D04'
-        name: TCS_DRV_STATUS
-        access_type: READ
-        default_value: '0x00000001'
-        constraints:
-        - expression: bit_0 == 1
-          description: TCS idle status
-          mask: '0x1'
-          expected_value: '0x1'
-        evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: tcs_write_config polling loop
-          reference: phase1012_rpmh_runtime_report.md
+    registers: {}
     properties:
       tcs_base: '0x18220D00'
       tcs_size: '0x3000'
@@ -149,3 +121,43 @@ hardware:
       confidence: EXACT
       description: DT node /qcom,rpmhclk compatible = qcom,rpmh-clk-sm6150
       reference: original_kernel.dts:L532
+  tlmm_pinctrl:
+    name: tlmm_pinctrl
+    compatible: qcom,sm6150-pinctrl
+    mmio_base: '0x03000000'
+    mmio_size: '0x00DC2000'
+    irq: 208
+    registers:
+      '0x0000':
+        offset: '0x0000'
+        name: TLMM_GPIO_CFG_0
+        access_type: READ_WRITE
+        default_value: '0x00000000'
+        constraints: []
+        evidence:
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: msm_pinctrl_probe GPIO cfg setup
+          reference: phase1014_tlmm_contract_report.md
+      '0x0004':
+        offset: '0x0004'
+        name: TLMM_GPIO_IN_OUT_0
+        access_type: READ_WRITE
+        default_value: '0x00000000'
+        constraints: []
+        evidence:
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: msm_pinctrl_probe GPIO data check
+          reference: phase1014_tlmm_contract_report.md
+    properties:
+      spi_cfg_base: '0x17C000F0'
+      spi_cfg_size: '0x50'
+      gpio_cells: 2
+      interrupt_cells: 2
+      total_gpios: 123
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /soc/pinctrl@03000000 compatible = qcom,sm6150-pinctrl
+      reference: original_kernel.dts:L6486
