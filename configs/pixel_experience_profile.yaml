@@ -135,28 +135,37 @@ hardware:
         default_value: '0x00000101'
         constraints: []
         evidence:
-        - source: DISASSEMBLY
-          confidence: DERIVED
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
           description: ufshcd_init capabilities read
-          reference: phase1023_ufs_contract_report.md
+          reference: phase1024_ufs_runtime_report.md
       '0x0004':
         offset: '0x0004'
         name: UFSHCI_HCS
         access_type: READ
         default_value: '0x00000001'
+        constraints:
+        - expression: bit_0 == 1 (device_present)
+          description: Device Present & Ready state
+          mask: '0x1'
+          expected_value: '0x1'
+        evidence:
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: ufshcd_init host controller status poll
+          reference: phase1024_ufs_runtime_report.md
+      '0x0008':
+        offset: '0x0008'
+        name: UFSHCI_VER
+        access_type: READ
+        default_value: '0x00000210'
         constraints: []
         evidence:
-        - source: DISASSEMBLY
-          confidence: DERIVED
-          description: ufshcd_init host controller status poll
-          reference: phase1023_ufs_contract_report.md
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: ufshcd_init version check
+          reference: phase1024_ufs_runtime_report.md
     properties:
-      ufs_ice_base: '0x01D90000'
-      ufs_ice_size: '0x00008000'
       lanes_per_direction: 1
       nonremovable: true
-    evidence:
-    - source: DTB
-      confidence: EXACT
-      description: DT node /soc/ufshc@1d84000 compatible = qcom,ufshc
-      reference: original_kernel.dts:L1294
+    evidence: []
