@@ -121,51 +121,28 @@ hardware:
       confidence: EXACT
       description: DT node /qcom,rpmhclk compatible = qcom,rpmh-clk-sm6150
       reference: original_kernel.dts:L532
-  ufshc_qcom:
-    name: ufshc_qcom
-    compatible: qcom,ufshc
-    mmio_base: '0x01D84000'
-    mmio_size: '0x00003000'
-    irq: 265
+  spm_qcom:
+    name: spm_qcom
+    compatible: qcom,spm-v2.1
+    mmio_base: '0x17900000'
+    mmio_size: '0x00001000'
+    irq: null
     registers:
-      '0x0000':
-        offset: '0x0000'
-        name: UFSHCI_CAPABILITIES
-        access_type: READ
-        default_value: '0x00000101'
-        constraints: []
-        evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: ufshcd_init capabilities read
-          reference: phase1024_ufs_runtime_report.md
       '0x0004':
         offset: '0x0004'
-        name: UFSHCI_HCS
+        name: SPM_STS0
         access_type: READ
         default_value: '0x00000001'
-        constraints:
-        - expression: bit_0 == 1 (device_present)
-          description: Device Present & Ready state
-          mask: '0x1'
-          expected_value: '0x1'
-        evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: ufshcd_init host controller status poll
-          reference: phase1024_ufs_runtime_report.md
-      '0x0008':
-        offset: '0x0008'
-        name: UFSHCI_VER
-        access_type: READ
-        default_value: '0x00000210'
         constraints: []
         evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: ufshcd_init version check
-          reference: phase1024_ufs_runtime_report.md
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: msm_spm_probe status check
+          reference: phase1026_spm_contract_report.md
     properties:
-      lanes_per_direction: 1
-      nonremovable: true
-    evidence: []
+      saw_name: saw
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /soc/spm@17900000 compatible = qcom,spm-v2.1
+      reference: original_kernel.dts:L22100
