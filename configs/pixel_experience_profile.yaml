@@ -121,41 +121,58 @@ hardware:
       confidence: EXACT
       description: DT node /qcom,rpmhclk compatible = qcom,rpmh-clk-sm6150
       reference: original_kernel.dts:L532
-  tlmm_pinctrl:
-    name: tlmm_pinctrl
-    compatible: qcom,sm6150-pinctrl
-    mmio_base: '0x03000000'
-    mmio_size: '0x00DC2000'
-    irq: 208
-    registers:
-      '0x0000':
-        offset: '0x0000'
-        name: TLMM_GPIO_CFG_N
-        access_type: READ_WRITE
-        default_value: '0x00000000'
-        constraints:
-        - expression: function_mux & drive_strength
-          description: Per-pin CFG register
-        evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: msm_pinctrl_probe CFG access
-          reference: phase1015_tlmm_runtime_report.md
-      '0x0004':
-        offset: '0x0004'
-        name: TLMM_GPIO_IN_OUT_N
-        access_type: READ_WRITE
-        default_value: '0x00000000'
-        constraints:
-        - expression: bit_0 == IN, bit_1 == OUT
-          description: Per-pin IN/OUT data register
-        evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: msm_gpio_init IN_OUT access
-          reference: phase1015_tlmm_runtime_report.md
+  qupv3_wrapper:
+    name: qupv3_wrapper
+    compatible: qcom,qupv3-geni-se
+    mmio_base: '0x008C0000'
+    mmio_size: '0x00006000'
+    irq: null
+    registers: {}
     properties:
-      gpio_cells: 2
-      interrupt_cells: 2
-      total_gpios: 123
-    evidence: []
+      bus_mas_id: 151
+      bus_slv-id: 512
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /soc/qcom,qupv3_0_geni_se@8c0000 compatible = qcom,qupv3-geni-se
+      reference: original_kernel.dts:L10823
+  geni_uart:
+    name: geni_uart
+    compatible: qcom,msm-geni-console
+    mmio_base: '0x00880000'
+    mmio_size: '0x00004000'
+    irq: 601
+    registers:
+      '0x0040':
+        offset: '0x0040'
+        name: GENI_STATUS
+        access_type: READ
+        default_value: '0x00000000'
+        constraints:
+        - expression: bit_0 == 0
+          description: M_GENI_CMD_ACTIVE idle bitmask
+          mask: '0x1'
+          expected_value: '0x0'
+        evidence:
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: qcom_geni_serial_probe status check
+          reference: phase1017_geni_uart_contract_report.md
+      '0x0068':
+        offset: '0x0068'
+        name: GENI_FW_REVISION_VERSION
+        access_type: READ
+        default_value: '0x00000100'
+        constraints: []
+        evidence:
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: qcom_geni_serial_probe FW check
+          reference: phase1017_geni_uart_contract_report.md
+    properties:
+      wrapper_core: qupv3_wrapper
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /soc/qcom,qup_uart@0x880000 compatible = qcom,msm-geni-console
+      reference: original_kernel.dts:L10839
