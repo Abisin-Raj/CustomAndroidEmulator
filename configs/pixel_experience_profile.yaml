@@ -121,51 +121,42 @@ hardware:
       confidence: EXACT
       description: DT node /qcom,rpmhclk compatible = qcom,rpmh-clk-sm6150
       reference: original_kernel.dts:L532
-  sdhci_msm:
-    name: sdhci_msm
-    compatible: qcom,sdhci-msm-v5
-    mmio_base: '0x007C4000'
-    mmio_size: '0x00001000'
-    irq: 641
+  ufshc_qcom:
+    name: ufshc_qcom
+    compatible: qcom,ufshc
+    mmio_base: '0x01D84000'
+    mmio_size: '0x00003000'
+    irq: 265
     registers:
-      '0x0040':
-        offset: '0x0040'
-        name: SDHCI_CAPABILITIES
+      '0x0000':
+        offset: '0x0000'
+        name: UFSHCI_CAPABILITIES
         access_type: READ
-        default_value: '0x376CD8B0'
+        default_value: '0x00000101'
         constraints: []
         evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: sdhci_msm_probe capabilities read
-          reference: phase1021_sdhci_runtime_report.md
-      '0x0024':
-        offset: '0x0024'
-        name: SDHCI_PRESENT_STATE
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: ufshcd_init capabilities read
+          reference: phase1023_ufs_contract_report.md
+      '0x0004':
+        offset: '0x0004'
+        name: UFSHCI_HCS
         access_type: READ
-        default_value: '0x01F70000'
-        constraints:
-        - expression: bit_16 == 1 (card_inserted)
-          description: Card inserted state
-          mask: '0x10000'
-          expected_value: '0x10000'
-        evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: sdhci_msm_probe present state check
-          reference: phase1021_sdhci_runtime_report.md
-      '0x010C':
-        offset: '0x010C'
-        name: SDHCI_MSM_VENDOR_SPEC
-        access_type: READ_WRITE
-        default_value: '0x00000000'
+        default_value: '0x00000001'
         constraints: []
         evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: sdhci_msm_probe vendor spec access
-          reference: phase1021_sdhci_runtime_report.md
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: ufshcd_init host controller status poll
+          reference: phase1023_ufs_contract_report.md
     properties:
-      bus_width: 8
+      ufs_ice_base: '0x01D90000'
+      ufs_ice_size: '0x00008000'
+      lanes_per_direction: 1
       nonremovable: true
-    evidence: []
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /soc/ufshc@1d84000 compatible = qcom,ufshc
+      reference: original_kernel.dts:L1294
