@@ -121,21 +121,6 @@ hardware:
       confidence: EXACT
       description: DT node /qcom,rpmhclk compatible = qcom,rpmh-clk-sm6150
       reference: original_kernel.dts:L532
-  qupv3_wrapper:
-    name: qupv3_wrapper
-    compatible: qcom,qupv3-geni-se
-    mmio_base: '0x008C0000'
-    mmio_size: '0x00006000'
-    irq: null
-    registers: {}
-    properties:
-      bus_mas_id: 151
-      bus_slv-id: 512
-    evidence:
-    - source: DTB
-      confidence: EXACT
-      description: DT node /soc/qcom,qupv3_0_geni_se@8c0000 compatible = qcom,qupv3-geni-se
-      reference: original_kernel.dts:L10823
   geni_uart:
     name: geni_uart
     compatible: qcom,msm-geni-console
@@ -150,14 +135,14 @@ hardware:
         default_value: '0x00000000'
         constraints:
         - expression: bit_0 == 0
-          description: M_GENI_CMD_ACTIVE idle bitmask
+          description: Idle bitmask
           mask: '0x1'
           expected_value: '0x0'
         evidence:
-        - source: DISASSEMBLY
-          confidence: DERIVED
-          description: qcom_geni_serial_probe status check
-          reference: phase1017_geni_uart_contract_report.md
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: qcom_geni_serial_probe status read
+          reference: phase1018_geni_uart_runtime_report.md
       '0x0068':
         offset: '0x0068'
         name: GENI_FW_REVISION_VERSION
@@ -165,14 +150,21 @@ hardware:
         default_value: '0x00000100'
         constraints: []
         evidence:
-        - source: DISASSEMBLY
-          confidence: DERIVED
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
           description: qcom_geni_serial_probe FW check
-          reference: phase1017_geni_uart_contract_report.md
+          reference: phase1018_geni_uart_runtime_report.md
+      '0x0600':
+        offset: '0x0600'
+        name: GENI_SER_M_CMD0
+        access_type: WRITE
+        default_value: '0x08000000'
+        constraints: []
+        evidence:
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: qcom_geni_serial_probe START_TX command
+          reference: phase1018_geni_uart_runtime_report.md
     properties:
       wrapper_core: qupv3_wrapper
-    evidence:
-    - source: DTB
-      confidence: EXACT
-      description: DT node /soc/qcom,qup_uart@0x880000 compatible = qcom,msm-geni-console
-      reference: original_kernel.dts:L10839
+    evidence: []
