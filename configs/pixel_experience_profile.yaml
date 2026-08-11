@@ -121,50 +121,44 @@ hardware:
       confidence: EXACT
       description: DT node /qcom,rpmhclk compatible = qcom,rpmh-clk-sm6150
       reference: original_kernel.dts:L532
-  geni_uart:
-    name: geni_uart
-    compatible: qcom,msm-geni-console
-    mmio_base: '0x00880000'
-    mmio_size: '0x00004000'
-    irq: 601
+  sdhci_msm:
+    name: sdhci_msm
+    compatible: qcom,sdhci-msm-v5
+    mmio_base: '0x007C4000'
+    mmio_size: '0x00001000'
+    irq: 641
     registers:
       '0x0040':
         offset: '0x0040'
-        name: GENI_STATUS
+        name: SDHCI_CAPABILITIES
         access_type: READ
+        default_value: '0x376CD8B0'
+        constraints: []
+        evidence:
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: sdhci_msm_probe capabilities read
+          reference: phase1020_sdhci_contract_report.md
+      '0x010C':
+        offset: '0x010C'
+        name: SDHCI_MSM_VENDOR_SPEC
+        access_type: READ_WRITE
         default_value: '0x00000000'
-        constraints:
-        - expression: bit_0 == 0
-          description: Idle bitmask
-          mask: '0x1'
-          expected_value: '0x0'
-        evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: qcom_geni_serial_probe status read
-          reference: phase1018_geni_uart_runtime_report.md
-      '0x0068':
-        offset: '0x0068'
-        name: GENI_FW_REVISION_VERSION
-        access_type: READ
-        default_value: '0x00000100'
         constraints: []
         evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: qcom_geni_serial_probe FW check
-          reference: phase1018_geni_uart_runtime_report.md
-      '0x0600':
-        offset: '0x0600'
-        name: GENI_SER_M_CMD0
-        access_type: WRITE
-        default_value: '0x08000000'
-        constraints: []
-        evidence:
-        - source: RUNTIME_TRACE
-          confidence: OBSERVED
-          description: qcom_geni_serial_probe START_TX command
-          reference: phase1018_geni_uart_runtime_report.md
+        - source: DISASSEMBLY
+          confidence: DERIVED
+          description: sdhci_msm_probe vendor spec setup
+          reference: phase1020_sdhci_contract_report.md
     properties:
-      wrapper_core: qupv3_wrapper
-    evidence: []
+      cmdq_mem_base: '0x007C5000'
+      cmdq_mem_size: '0x00001000'
+      cmdq_ice_base: '0x007C8000'
+      cmdq_ice_size: '0x00008000'
+      bus_width: 8
+      nonremovable: true
+    evidence:
+    - source: DTB
+      confidence: EXACT
+      description: DT node /soc/sdhci@7c4000 compatible = qcom,sdhci-msm-v5
+      reference: original_kernel.dts:L1143
