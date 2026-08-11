@@ -95,7 +95,35 @@ hardware:
     mmio_base: '0x18220000'
     mmio_size: '0x00000100'
     irq: 5
-    registers: {}
+    registers:
+      '0x0000':
+        offset: '0x0000'
+        name: RSC_DRV_IRQ_STATUS
+        access_type: READ
+        default_value: '0x00000000'
+        constraints:
+        - expression: bit_n == 1 on completion
+          description: TCS completion IRQ status
+        evidence:
+        - source: RUNTIME_TRACE
+          confidence: DERIVED
+          description: rsc_drv_irq_handler check
+          reference: phase1012_rpmh_runtime_report.md
+      '0x0D04':
+        offset: '0x0D04'
+        name: TCS_DRV_STATUS
+        access_type: READ
+        default_value: '0x00000001'
+        constraints:
+        - expression: bit_0 == 1
+          description: TCS idle status
+          mask: '0x1'
+          expected_value: '0x1'
+        evidence:
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: tcs_write_config polling loop
+          reference: phase1012_rpmh_runtime_report.md
     properties:
       tcs_base: '0x18220D00'
       tcs_size: '0x3000'
