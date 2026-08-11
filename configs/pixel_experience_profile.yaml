@@ -130,34 +130,32 @@ hardware:
     registers:
       '0x0000':
         offset: '0x0000'
-        name: TLMM_GPIO_CFG_0
+        name: TLMM_GPIO_CFG_N
         access_type: READ_WRITE
         default_value: '0x00000000'
-        constraints: []
+        constraints:
+        - expression: function_mux & drive_strength
+          description: Per-pin CFG register
         evidence:
-        - source: DISASSEMBLY
-          confidence: DERIVED
-          description: msm_pinctrl_probe GPIO cfg setup
-          reference: phase1014_tlmm_contract_report.md
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: msm_pinctrl_probe CFG access
+          reference: phase1015_tlmm_runtime_report.md
       '0x0004':
         offset: '0x0004'
-        name: TLMM_GPIO_IN_OUT_0
+        name: TLMM_GPIO_IN_OUT_N
         access_type: READ_WRITE
         default_value: '0x00000000'
-        constraints: []
+        constraints:
+        - expression: bit_0 == IN, bit_1 == OUT
+          description: Per-pin IN/OUT data register
         evidence:
-        - source: DISASSEMBLY
-          confidence: DERIVED
-          description: msm_pinctrl_probe GPIO data check
-          reference: phase1014_tlmm_contract_report.md
+        - source: RUNTIME_TRACE
+          confidence: OBSERVED
+          description: msm_gpio_init IN_OUT access
+          reference: phase1015_tlmm_runtime_report.md
     properties:
-      spi_cfg_base: '0x17C000F0'
-      spi_cfg_size: '0x50'
       gpio_cells: 2
       interrupt_cells: 2
       total_gpios: 123
-    evidence:
-    - source: DTB
-      confidence: EXACT
-      description: DT node /soc/pinctrl@03000000 compatible = qcom,sm6150-pinctrl
-      reference: original_kernel.dts:L6486
+    evidence: []
