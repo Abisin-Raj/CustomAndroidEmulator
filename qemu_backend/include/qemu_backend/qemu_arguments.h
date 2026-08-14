@@ -22,10 +22,11 @@ struct QemuConfigParameters {
     // When true, appends -dumpdtb qemu_generated.dtb so QEMU writes its
     // auto-generated DTB to disk for inspection and CPU reg comparison.
     bool enableDtbDump   = false;
-    // When true, adds -netdev user,id=net0,hostfwd=tcp::<hostPort>-:5555 -device virtio-net-pci,netdev=net0
-    // so the Qt host can TCP-connect to input_bridge inside the guest on port 5555.
+    // When true, adds -netdev user,id=net0,hostfwd=tcp::<hostPort>-:7777 -device virtio-net-pci,netdev=net0
+    // so the Qt host can TCP-connect to input_bridge inside the guest on port 7777.
+    // Port 7777 is used instead of 5555 (which is claimed by the Android ADB server on the host).
     bool enableInputBridge  = true;
-    int  inputBridgeHostPort = 5555;
+    int  inputBridgeHostPort = 7777;
 };
 
 class QemuArguments {

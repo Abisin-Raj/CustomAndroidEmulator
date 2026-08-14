@@ -224,32 +224,49 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
     }
 
     // 9. Schedule deferred connection to input_bridge TCP server inside the guest.
-    //    The guest needs ~60 s to reach userspace before input_bridge starts listening.
-    //    Retry every 5 s until connected (or until the VM stops).
+    //    Port 7777 is used — NOT 5555, which the host ADB server already owns and would
+    //    accept the connection before the guest boots (causing a silent false positive).
+    //    The guest userspace takes ~90–150 s to reach init.rc, so we wait 90 s before
+    //    the first connection attempt, then retry every 10 s until connected.
     if (!m_inputSocket) {
         m_inputSocket = new QTcpSocket(this);
         connect(m_inputSocket, &QTcpSocket::connected, this, [this]() {
-            LOG_QEMU_INFO("VmManager: input_bridge TCP connection established on port 5555");
+            LOG_QEMU_INFO("VmManager: input_bridge TCP connection established on port 7777");
             if (m_inputRetryTimer) m_inputRetryTimer->stop();
         });
-        connect(m_inputSocket, &QTcpSocket::errorOccurred, this, [this](QAbstractSocket::SocketError) {
-            LOG_QEMU_DEBUG("VmManager: input_bridge not ready yet, retrying in 5 s...");
+        connect(m_inputSocket, &QTcpSocket::errorOccurred, this,
+            [this](QAbstractSocket::SocketError) {
+                if (m_inputSocket)
+                    LOG_QEMU_DEBUG("VmManager: input_bridge not ready yet (port 7777), retrying in 10 s...");
+            });
+        connect(m_inputSocket, &QTcpSocket::disconnected, this, [this]() {
+            // If the connection drops (e.g. QEMU restarted), resume retrying
+            if (m_inputRetryTimer && m_isRunning) m_inputRetryTimer->start();
         });
     }
     if (!m_inputRetryTimer) {
         m_inputRetryTimer = new QTimer(this);
-        m_inputRetryTimer->setInterval(5000);
+        m_inputRetryTimer->setInterval(10000); // retry every 10 s
         connect(m_inputRetryTimer, &QTimer::timeout, this, [this]() {
             if (m_inputSocket &&
                 m_inputSocket->state() != QAbstractSocket::ConnectedState &&
                 m_inputSocket->state() != QAbstractSocket::ConnectingState) {
-                m_inputSocket->connectToHost("127.0.0.1", 5555);
+                m_inputSocket->connectToHost("127.0.0.1", 7777);
             }
         });
     }
-    m_inputRetryTimer->start();
-    // Try immediately too
-    m_inputSocket->connectToHost("127.0.0.1", 5555);
+    // Wait 90 s before the first attempt — the guest needs time to reach userspace.
+    // QTimer::singleShot fires once, then the retry timer takes over.
+    QTimer::singleShot(90000, this, [this]() {
+        if (!m_isRunning) return;
+        LOG_QEMU_INFO("VmManager: Boot delay elapsed — attempting input_bridge connection on port 7777");
+        if (m_inputSocket &&
+            m_inputSocket->state() != QAbstractSocket::ConnectedState &&
+            m_inputSocket->state() != QAbstractSocket::ConnectingState) {
+            m_inputSocket->connectToHost("127.0.0.1", 7777);
+        }
+        if (m_inputRetryTimer) m_inputRetryTimer->start();
+    });
 
     m_isRunning = true;
     emit vmStateChanged(true);
@@ -258,10 +275,15 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
 }
 
 void VmManager::stopVm() {
-    if (m_inputRetryTimer) { m_inputRetryTimer->stop(); }
+    if (m_inputRetryTimer) {
+        m_inputRetryTimer->stop();
+        // Do NOT delete — owned by QObject parent, will be cleaned up safely
+    }
     if (m_inputSocket) {
-        m_inputSocket->disconnectFromHost();
-        m_inputSocket->deleteLater();
+        // abort() instead of disconnectFromHost() avoids queued callbacks
+        // that would fire after m_inputSocket is set to nullptr
+        m_inputSocket->abort();
+        delete m_inputSocket;
         m_inputSocket = nullptr;
     }
     if (m_vncReceiver) {
