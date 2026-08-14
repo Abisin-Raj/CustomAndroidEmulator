@@ -27,6 +27,7 @@ signals:
     void stateChanged(bool running);
     void finished(int exitCode);
     void logLineRead(const QString& line);
+    void frameReady(int width, int height, int stride, const uint8_t* pixels);
 
 private slots:
     void onReadyReadStandardOutput();

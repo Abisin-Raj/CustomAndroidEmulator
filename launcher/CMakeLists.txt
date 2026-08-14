@@ -2,6 +2,8 @@ add_executable(launcher
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
+    src/display_viewport.cpp
+    src/display_viewport.h
 )
 
 target_link_libraries(launcher PRIVATE

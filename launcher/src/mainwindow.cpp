@@ -6,6 +6,7 @@
 #include "models/boot_report.h"
 #include "boot_events/event_dispatcher.h"
 #include "boot_pipeline/boot_pipeline_manager.h"
+#include "display_viewport.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -40,6 +41,9 @@ MainWindow::MainWindow(QWidget* parent)
     // Connect real-time Boot Pipeline callbacks
     connect(m_vmManager->getDispatcher(), &EventDispatcher::eventDispatched, this, &MainWindow::onBootEventDispatched);
     connect(m_vmManager->getDispatcher(), &EventDispatcher::stateChanged, this, &MainWindow::onBootStateChanged);
+
+    m_displayViewport = new DisplayViewport(this);
+    connect(m_vmManager, &VmManager::frameReady, m_displayViewport, &DisplayViewport::updateFramebuffer);
 
     setupUi();
     

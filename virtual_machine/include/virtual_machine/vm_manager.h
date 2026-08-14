@@ -38,6 +38,7 @@ public:
 signals:
     void vmStateChanged(bool running);
     void vmFinished(int exitCode);
+    void frameReady(int width, int height, int stride, const uint8_t* pixels);
 
 private slots:
     void onLauncherStateChanged(bool running);
