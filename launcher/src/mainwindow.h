@@ -61,6 +61,7 @@ private:
     std::unique_ptr<RomManager> m_romManager;
     VmManager* m_vmManager = nullptr;
     class DisplayViewport* m_displayViewport = nullptr;
+    class HardwareButtonWidget* m_hardwareButtonWidget = nullptr;
     
     // UI components
     QListWidget* m_sidebarList = nullptr;

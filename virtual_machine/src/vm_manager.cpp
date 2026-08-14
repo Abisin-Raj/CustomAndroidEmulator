@@ -257,23 +257,43 @@ void VmManager::sendPointerEvent(int x, int y, uint8_t buttonMask) {
     }
 }
 
+void VmManager::sendHardwareKey(HardwareKey key, bool pressed) {
+    int linuxCode = 0;
+    const char* keyName = "UNKNOWN";
+
+    switch (key) {
+        case HardwareKey::VolumeUp:
+            linuxCode = 115; // KEY_VOLUMEUP
+            keyName = "VolumeUp";
+            break;
+        case HardwareKey::VolumeDown:
+            linuxCode = 114; // KEY_VOLUMEDOWN
+            keyName = "VolumeDown";
+            break;
+        case HardwareKey::Power:
+            linuxCode = 116; // KEY_POWER
+            keyName = "Power";
+            break;
+    }
+
+    if (linuxCode != 0 && m_launcher) {
+        QByteArray pkt = QString("EV_KEY %1 %2\n").arg(linuxCode).arg(pressed ? 1 : 0).toUtf8();
+        m_launcher->writeData(pkt);
+        LOG_INFO("VmManager: HardwareKey [{}] -> Linux EV_KEY {} {}", keyName, linuxCode, pressed ? "PRESS" : "RELEASE");
+    }
+}
+
 void VmManager::sendKeyEvent(uint32_t keysym, bool down) {
     if (m_vncReceiver) {
         m_vncReceiver->sendKeyEvent(keysym, down);
     }
-    if (down && m_launcher) {
-        if (keysym == 0xff52 || keysym == 'w' || keysym == 'W' || keysym == 'k' || keysym == 'K') { // Arrow Up -> Volume Up
-            m_launcher->writeData("U\n");
-            LOG_INFO("VmManager: Dispatched KEY_VOLUMEUP to Android guest input bridge");
-        } else if (keysym == 0xff54 || keysym == 's' || keysym == 'S' || keysym == 'j' || keysym == 'J') { // Arrow Down -> Volume Down
-            m_launcher->writeData("D\n");
-            LOG_INFO("VmManager: Dispatched KEY_VOLUMEDOWN to Android guest input bridge");
-        } else if (keysym == 0xff0d || keysym == ' ' || keysym == 'e' || keysym == 'E' || keysym == 'p' || keysym == 'P') { // Return / Enter / Space -> Power
-            m_launcher->writeData("P\n");
-            LOG_INFO("VmManager: Dispatched KEY_POWER to Android guest input bridge");
-        } else if (keysym == 0xff1b || keysym == 'b' || keysym == 'B') { // Escape / Back
-            m_launcher->writeData("B\n");
-            LOG_INFO("VmManager: Dispatched KEY_BACK to Android guest input bridge");
+    if (m_launcher) {
+        if (keysym == 0xff52 || keysym == 'w' || keysym == 'W' || keysym == 'k' || keysym == 'K') {
+            sendHardwareKey(HardwareKey::VolumeUp, down);
+        } else if (keysym == 0xff54 || keysym == 's' || keysym == 'S' || keysym == 'j' || keysym == 'J') {
+            sendHardwareKey(HardwareKey::VolumeDown, down);
+        } else if (keysym == 0xff0d || keysym == ' ' || keysym == 'e' || keysym == 'E' || keysym == 'p' || keysym == 'P') {
+            sendHardwareKey(HardwareKey::Power, down);
         }
     }
 }

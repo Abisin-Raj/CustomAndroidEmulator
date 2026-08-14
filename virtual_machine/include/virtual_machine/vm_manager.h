@@ -1,4 +1,5 @@
 #pragma once
+#include "core/hardware_keys.h"
 #include <QObject>
 #include <QElapsedTimer>
 #include <filesystem>
@@ -42,6 +43,11 @@ public:
      * @brief Dispatches pointer (touch/mouse) events to the running guest VM.
      */
     void sendPointerEvent(int x, int y, uint8_t buttonMask);
+
+    /**
+     * @brief Dispatches hardware key events (Volume Up, Volume Down, Power) to the guest VM.
+     */
+    void sendHardwareKey(HardwareKey key, bool pressed);
 
     /**
      * @brief Dispatches key events to the running guest VM.

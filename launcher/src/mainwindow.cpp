@@ -7,6 +7,7 @@
 #include "boot_events/event_dispatcher.h"
 #include "boot_pipeline/boot_pipeline_manager.h"
 #include "display_viewport.h"
+#include "hardware_button_widget.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -117,7 +118,7 @@ void MainWindow::setupDisplayPage() {
     layout->setSpacing(10);
 
     auto* headerLayout = new QHBoxLayout();
-    auto* titleLabel = new QLabel("Live Android Display Viewport", this);
+    auto* titleLabel = new QLabel("Live Android Display Viewport & Hardware Controls", this);
     QFont titleFont = titleLabel->font();
     titleFont.setPointSize(14);
     titleFont.setBold(true);
@@ -126,7 +127,21 @@ void MainWindow::setupDisplayPage() {
     headerLayout->addStretch();
 
     layout->addLayout(headerLayout);
-    layout->addWidget(m_displayViewport, 1);
+
+    auto* displayContainer = new QHBoxLayout();
+    displayContainer->addWidget(m_displayViewport, 1);
+
+    m_hardwareButtonWidget = new HardwareButtonWidget(this);
+    connect(m_hardwareButtonWidget, &HardwareButtonWidget::keyPressed, this, [this](HardwareKey key) {
+        m_vmManager->sendHardwareKey(key, true);
+    });
+    connect(m_hardwareButtonWidget, &HardwareButtonWidget::keyReleased, this, [this](HardwareKey key) {
+        m_vmManager->sendHardwareKey(key, false);
+    });
+    connect(m_displayViewport, &DisplayViewport::hardwareKeyEvent, m_vmManager, &VmManager::sendHardwareKey);
+
+    displayContainer->addWidget(m_hardwareButtonWidget, 0, Qt::AlignVCenter);
+    layout->addLayout(displayContainer, 1);
 
     m_stackedWidget->addWidget(page);
 }

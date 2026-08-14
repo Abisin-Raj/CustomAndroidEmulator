@@ -6,6 +6,8 @@
 #include <QMutex>
 #include <cstdint>
 
+#include "hardware_keys.h"
+
 class DisplayViewport : public QWidget {
     Q_OBJECT
 public:
@@ -20,6 +22,7 @@ public:
 signals:
     void pointerEvent(int x, int y, uint8_t buttonMask);
     void keyEvent(uint32_t keysym, bool down);
+    void hardwareKeyEvent(HardwareKey key, bool pressed);
 
 protected:
     void paintEvent(QPaintEvent* event) override;

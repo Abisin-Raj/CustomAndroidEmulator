@@ -4,6 +4,14 @@ add_executable(launcher
     src/mainwindow.h
     src/display_viewport.cpp
     src/display_viewport.h
+    src/hardware_button_widget.cpp
+    src/hardware_button_widget.h
+    include/hardware_keys.h
+)
+
+target_include_directories(launcher PRIVATE
+    include
+    src
 )
 
 target_link_libraries(launcher PRIVATE

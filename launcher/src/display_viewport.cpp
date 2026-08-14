@@ -97,7 +97,22 @@ void DisplayViewport::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void DisplayViewport::keyPressEvent(QKeyEvent* event) {
-    uint32_t keysym = qtKeyToKeysym(event->key());
+    int k = event->key();
+    if (k == Qt::Key_Up || k == Qt::Key_W) {
+        emit hardwareKeyEvent(HardwareKey::VolumeUp, true);
+        event->accept();
+        return;
+    } else if (k == Qt::Key_Down || k == Qt::Key_S) {
+        emit hardwareKeyEvent(HardwareKey::VolumeDown, true);
+        event->accept();
+        return;
+    } else if (k == Qt::Key_Return || k == Qt::Key_Enter || k == Qt::Key_Space || k == Qt::Key_P) {
+        emit hardwareKeyEvent(HardwareKey::Power, true);
+        event->accept();
+        return;
+    }
+
+    uint32_t keysym = qtKeyToKeysym(k);
     if (keysym != 0) {
         LOG_INFO("DisplayViewport: Key press -> keysym 0x{:04x}", keysym);
         emit keyEvent(keysym, true);
@@ -108,7 +123,22 @@ void DisplayViewport::keyPressEvent(QKeyEvent* event) {
 }
 
 void DisplayViewport::keyReleaseEvent(QKeyEvent* event) {
-    uint32_t keysym = qtKeyToKeysym(event->key());
+    int k = event->key();
+    if (k == Qt::Key_Up || k == Qt::Key_W) {
+        emit hardwareKeyEvent(HardwareKey::VolumeUp, false);
+        event->accept();
+        return;
+    } else if (k == Qt::Key_Down || k == Qt::Key_S) {
+        emit hardwareKeyEvent(HardwareKey::VolumeDown, false);
+        event->accept();
+        return;
+    } else if (k == Qt::Key_Return || k == Qt::Key_Enter || k == Qt::Key_Space || k == Qt::Key_P) {
+        emit hardwareKeyEvent(HardwareKey::Power, false);
+        event->accept();
+        return;
+    }
+
+    uint32_t keysym = qtKeyToKeysym(k);
     if (keysym != 0) {
         LOG_INFO("DisplayViewport: Key release -> keysym 0x{:04x}", keysym);
         emit keyEvent(keysym, false);
