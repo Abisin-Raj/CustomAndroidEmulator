@@ -27,6 +27,9 @@ struct QemuConfigParameters {
     // Port 7777 is used instead of 5555 (which is claimed by the Android ADB server on the host).
     bool enableInputBridge  = true;
     int  inputBridgeHostPort = 7777;
+    // Block drives for Android partitions (Phase 11.2)
+    std::string systemImagePath;
+    std::string vendorImagePath;
 };
 
 class QemuArguments {

@@ -61,6 +61,16 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
         args << "-netdev" << hostfwd << "-device" << "virtio-net-pci,netdev=net0";
     }
 
+    // Phase 11.2: Attach system.img and vendor.img as virtio-blk-device (MMIO)
+    if (!params.systemImagePath.empty()) {
+        args << "-drive" << QString("file=%1,format=raw,if=none,id=sys0,readonly=on").arg(QString::fromStdString(params.systemImagePath))
+             << "-device" << "virtio-blk-device,drive=sys0";
+    }
+    if (!params.vendorImagePath.empty()) {
+        args << "-drive" << QString("file=%1,format=raw,if=none,id=vnd0,readonly=on").arg(QString::fromStdString(params.vendorImagePath))
+             << "-device" << "virtio-blk-device,drive=vnd0";
+    }
+
     if (!params.extraArgs.empty()) {
         QString extra = QString::fromStdString(params.extraArgs);
         QStringList extraParts = extra.split(' ', Qt::SkipEmptyParts);

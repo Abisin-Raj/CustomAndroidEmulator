@@ -40,8 +40,18 @@ QemuConfigParameters VmConfigurationBuilder::build(
         params.dtbPath = "C:/qemu_work/virt_spmi_compact.dtb";
     }
 
-    // Set verified guest command line for Android userspace boot
-    params.cmdline = "console=ttyMSM0,115200n8 nokaslr androidboot.selinux=permissive enforcing=0 androidboot.hardware=qcom androidboot.mode=normal androidboot.bootdevice=1d84000.ufshc earlycon=msm_geni_serial,0x880000 loglevel=8 ignore_loglevel";
+    // Phase 11.2: Attach system.img and vendor.img as virtio block devices
+    std::filesystem::path systemImg = romDir / "system.img";
+    std::filesystem::path vendorImg = romDir / "vendor.img";
+    if (std::filesystem::exists(systemImg)) {
+        params.systemImagePath = systemImg.string();
+    }
+    if (std::filesystem::exists(vendorImg)) {
+        params.vendorImagePath = vendorImg.string();
+    }
+
+    // Set verified guest command line for Android userspace boot (force_normal_boot triggers first-stage partition mounts)
+    params.cmdline = "console=ttyMSM0,115200n8 nokaslr androidboot.selinux=permissive enforcing=0 androidboot.hardware=qcom androidboot.mode=normal androidboot.force_normal_boot=1 androidboot.bootdevice=1d84000.ufshc earlycon=msm_geni_serial,0x880000 loglevel=8 ignore_loglevel";
 
     return params;
 }
