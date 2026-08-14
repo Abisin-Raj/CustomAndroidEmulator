@@ -92,6 +92,45 @@ void HardwareButtonWidget::setupUi() {
         emit keyReleased(HardwareKey::Power);
     });
 
+    layout->addSpacing(20);
+
+    // Hardware Input Inspector Box
+    QFrame* inspectorFrame = new QFrame(this);
+    inspectorFrame->setStyleSheet("QFrame { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 6px; }");
+    QVBoxLayout* inspLayout = new QVBoxLayout(inspectorFrame);
+    inspLayout->setContentsMargins(6, 6, 6, 6);
+    inspLayout->setSpacing(4);
+
+    QLabel* inspTitle = new QLabel("INSPECTOR", inspectorFrame);
+    inspTitle->setAlignment(Qt::AlignCenter);
+    inspTitle->setStyleSheet("color: #58a6ff; font-size: 9px; font-weight: bold; letter-spacing: 1px; border: none;");
+    inspLayout->addWidget(inspTitle);
+
+    m_lastKeyLabel = new QLabel("Key: None", inspectorFrame);
+    m_lastKeyLabel->setStyleSheet("color: #c9d1d9; font-size: 10px; border: none;");
+    inspLayout->addWidget(m_lastKeyLabel);
+
+    m_codeLabel = new QLabel("Code: -", inspectorFrame);
+    m_codeLabel->setStyleSheet("color: #8b949e; font-size: 10px; border: none;");
+    inspLayout->addWidget(m_codeLabel);
+
+    m_irqLabel = new QLabel("IRQs: 0", inspectorFrame);
+    m_irqLabel->setStyleSheet("color: #3fb950; font-size: 10px; font-weight: bold; border: none;");
+    inspLayout->addWidget(m_irqLabel);
+
+    m_driverStatusLabel = new QLabel("Status: Active", inspectorFrame);
+    m_driverStatusLabel->setStyleSheet("color: #8b949e; font-size: 9px; border: none;");
+    inspLayout->addWidget(m_driverStatusLabel);
+
+    layout->addWidget(inspectorFrame);
+
     layout->addStretch();
     setStyleSheet("background: transparent;");
+}
+
+void HardwareButtonWidget::updateHardwareState(const QString& lastKey, int linuxCode, int irqCount, const QString& driverStatus) {
+    if (m_lastKeyLabel) m_lastKeyLabel->setText(QString("Key: %1").arg(lastKey));
+    if (m_codeLabel) m_codeLabel->setText(QString("Code: %1").arg(linuxCode));
+    if (m_irqLabel) m_irqLabel->setText(QString("IRQs: %1").arg(irqCount));
+    if (m_driverStatusLabel) m_driverStatusLabel->setText(QString("Status: %1").arg(driverStatus));
 }

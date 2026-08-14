@@ -132,13 +132,24 @@ void MainWindow::setupDisplayPage() {
     displayContainer->addWidget(m_displayViewport, 1);
 
     m_hardwareButtonWidget = new HardwareButtonWidget(this);
-    connect(m_hardwareButtonWidget, &HardwareButtonWidget::keyPressed, this, [this](HardwareKey key) {
-        m_vmManager->sendHardwareKey(key, true);
+    static int s_irqCounter = 0;
+    auto handleKey = [this](HardwareKey key, bool pressed) {
+        if (pressed) s_irqCounter++;
+        QString keyName = (key == HardwareKey::VolumeUp) ? "VolumeUp" : (key == HardwareKey::VolumeDown) ? "VolumeDown" : "Power";
+        int linuxCode = (key == HardwareKey::VolumeUp) ? 115 : (key == HardwareKey::VolumeDown) ? 114 : 116;
+        m_hardwareButtonWidget->updateHardwareState(keyName, linuxCode, s_irqCounter, pressed ? "DOWN" : "UP");
+        m_vmManager->sendHardwareKey(key, pressed);
+    };
+
+    connect(m_hardwareButtonWidget, &HardwareButtonWidget::keyPressed, this, [handleKey](HardwareKey key) {
+        handleKey(key, true);
     });
-    connect(m_hardwareButtonWidget, &HardwareButtonWidget::keyReleased, this, [this](HardwareKey key) {
-        m_vmManager->sendHardwareKey(key, false);
+    connect(m_hardwareButtonWidget, &HardwareButtonWidget::keyReleased, this, [handleKey](HardwareKey key) {
+        handleKey(key, false);
     });
-    connect(m_displayViewport, &DisplayViewport::hardwareKeyEvent, m_vmManager, &VmManager::sendHardwareKey);
+    connect(m_displayViewport, &DisplayViewport::hardwareKeyEvent, this, [handleKey](HardwareKey key, bool pressed) {
+        handleKey(key, pressed);
+    });
 
     displayContainer->addWidget(m_hardwareButtonWidget, 0, Qt::AlignVCenter);
     layout->addLayout(displayContainer, 1);
