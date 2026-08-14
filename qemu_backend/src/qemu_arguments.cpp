@@ -37,7 +37,7 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
         args << "-append" << "console=ttyAMA0 earlycon=pl011,0x09000000 printk.devkmsg=on";
     }
 
-    args << "-serial" << "file:qemu_uart.log";
+    args << "-serial" << "stdio";
 
     // MMIO trace: log every guest access to an unmapped/unimplemented region.
     // NOTE: -d unimp only captures what QEMU considers "unimplemented". If the
