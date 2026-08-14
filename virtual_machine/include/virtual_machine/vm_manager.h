@@ -80,4 +80,6 @@ private:
 
     QElapsedTimer m_timer;
     QString m_fullLogText;
+    class QTcpSocket* m_inputSocket      = nullptr;
+    class QTimer*     m_inputRetryTimer  = nullptr;
 };

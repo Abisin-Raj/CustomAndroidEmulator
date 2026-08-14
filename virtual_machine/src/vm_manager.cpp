@@ -15,6 +15,8 @@
 #include "core/logger.h"
 #include "core/utils.h"
 #include "behavior_exploration_tool/bet_system.h"
+#include <QTcpSocket>
+#include <QTimer>
 #include <nlohmann/json.hpp>
 #include <fstream>
 
@@ -221,6 +223,34 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
         }
     }
 
+    // 9. Schedule deferred connection to input_bridge TCP server inside the guest.
+    //    The guest needs ~60 s to reach userspace before input_bridge starts listening.
+    //    Retry every 5 s until connected (or until the VM stops).
+    if (!m_inputSocket) {
+        m_inputSocket = new QTcpSocket(this);
+        connect(m_inputSocket, &QTcpSocket::connected, this, [this]() {
+            LOG_QEMU_INFO("VmManager: input_bridge TCP connection established on port 5555");
+            if (m_inputRetryTimer) m_inputRetryTimer->stop();
+        });
+        connect(m_inputSocket, &QTcpSocket::errorOccurred, this, [this](QAbstractSocket::SocketError) {
+            LOG_QEMU_DEBUG("VmManager: input_bridge not ready yet, retrying in 5 s...");
+        });
+    }
+    if (!m_inputRetryTimer) {
+        m_inputRetryTimer = new QTimer(this);
+        m_inputRetryTimer->setInterval(5000);
+        connect(m_inputRetryTimer, &QTimer::timeout, this, [this]() {
+            if (m_inputSocket &&
+                m_inputSocket->state() != QAbstractSocket::ConnectedState &&
+                m_inputSocket->state() != QAbstractSocket::ConnectingState) {
+                m_inputSocket->connectToHost("127.0.0.1", 5555);
+            }
+        });
+    }
+    m_inputRetryTimer->start();
+    // Try immediately too
+    m_inputSocket->connectToHost("127.0.0.1", 5555);
+
     m_isRunning = true;
     emit vmStateChanged(true);
     m_dispatcher->dispatchStateChange(BootState::VM_STARTING);
@@ -228,6 +258,12 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
 }
 
 void VmManager::stopVm() {
+    if (m_inputRetryTimer) { m_inputRetryTimer->stop(); }
+    if (m_inputSocket) {
+        m_inputSocket->disconnectFromHost();
+        m_inputSocket->deleteLater();
+        m_inputSocket = nullptr;
+    }
     if (m_vncReceiver) {
         m_vncReceiver->disconnectFromServer();
     }
@@ -284,15 +320,36 @@ void VmManager::sendHardwareKey(HardwareKey key, bool pressed) {
         m_vncReceiver->sendKeyEvent(vncKeysym, pressed);
     }
 
-    if (linuxCode != 0 && m_launcher) {
-        QByteArray pkt = QString("EV_KEY %1 %2\n").arg(linuxCode).arg(pressed ? 1 : 0).toUtf8();
-        m_launcher->writeData(pkt);
-        if (pressed) {
-            if (key == HardwareKey::VolumeUp) m_launcher->writeData("U\n");
-            else if (key == HardwareKey::VolumeDown) m_launcher->writeData("D\n");
-            else if (key == HardwareKey::Power) m_launcher->writeData("P\n");
+    if (linuxCode != 0) {
+        // Primary path: send single-character command to input_bridge via TCP.
+        // The socket is managed by startVm() with a retry timer, so it should be
+        // connected once the guest userspace is up (~60 s after boot).
+        bool sentViaTcp = false;
+        if (m_inputSocket && m_inputSocket->state() == QAbstractSocket::ConnectedState) {
+            if (pressed) {
+                if (key == HardwareKey::VolumeUp)   m_inputSocket->write("U\n");
+                else if (key == HardwareKey::VolumeDown) m_inputSocket->write("D\n");
+                else if (key == HardwareKey::Power)  m_inputSocket->write("P\n");
+            } else {
+                // Release: send EV_KEY <code> 0 so input_bridge can generate the release event
+                m_inputSocket->write(QString("EV_KEY %1 0\n").arg(linuxCode).toUtf8());
+            }
+            m_inputSocket->flush();
+            sentViaTcp = true;
         }
-        LOG_INFO("VmManager: HardwareKey [{}] -> Linux EV_KEY {} {}", keyName, linuxCode, pressed ? "PRESS" : "RELEASE");
+
+        // Fallback path: also write to QEMU stdin (harmless even if input_bridge
+        // doesn't read from the serial; won't cause issues).
+        if (m_launcher) {
+            if (pressed) {
+                if (key == HardwareKey::VolumeUp)   m_launcher->writeData("U\n");
+                else if (key == HardwareKey::VolumeDown) m_launcher->writeData("D\n");
+                else if (key == HardwareKey::Power)  m_launcher->writeData("P\n");
+            }
+        }
+
+        LOG_INFO("VmManager: HardwareKey [{}] -> Linux EV_KEY {} {} (tcp={})",
+            keyName, linuxCode, pressed ? "PRESS" : "RELEASE", sentViaTcp);
     }
 }
 

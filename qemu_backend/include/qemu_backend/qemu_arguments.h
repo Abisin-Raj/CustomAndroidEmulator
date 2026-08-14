@@ -22,6 +22,10 @@ struct QemuConfigParameters {
     // When true, appends -dumpdtb qemu_generated.dtb so QEMU writes its
     // auto-generated DTB to disk for inspection and CPU reg comparison.
     bool enableDtbDump   = false;
+    // When true, adds -netdev user,id=net0,hostfwd=tcp::<hostPort>-:5555 -device virtio-net-pci,netdev=net0
+    // so the Qt host can TCP-connect to input_bridge inside the guest on port 5555.
+    bool enableInputBridge  = true;
+    int  inputBridgeHostPort = 5555;
 };
 
 class QemuArguments {
