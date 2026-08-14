@@ -23,7 +23,7 @@ VncFrameReceiver::VncFrameReceiver(QObject* parent)
         }
     });
 
-    m_pollTimer->setInterval(33); // ~30 FPS poll
+    m_pollTimer->setInterval(16); // ~60 FPS poll heartbeat
     connect(m_pollTimer, &QTimer::timeout, this, [this]() {
         if (m_state == VncState::Connected) {
             requestFramebufferUpdate(true);
@@ -321,6 +321,7 @@ void VncFrameReceiver::processServerMessages() {
                 m_pendingRects--;
                 if (m_pendingRects == 0) {
                     emit frameReady(m_fbWidth, m_fbHeight, m_stride, m_framebuffer.data());
+                    requestFramebufferUpdate(true);
                 }
                 continue;
             } else {

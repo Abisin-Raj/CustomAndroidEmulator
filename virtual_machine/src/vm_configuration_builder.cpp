@@ -39,7 +39,7 @@ QemuConfigParameters VmConfigurationBuilder::build(
     }
 
     // Set verified guest command line
-    params.cmdline = "rdinit=/init console=ttyMSM0,115200n8 nokaslr androidboot.hardware=qcom androidboot.bootdevice=1d84000.ufshc earlycon=msm_geni_serial,0x880000 loglevel=8 ignore_loglevel";
+    params.cmdline = "rdinit=/init console=ttyMSM0,115200n8 nokaslr androidboot.selinux=permissive enforcing=0 androidboot.hardware=qcom androidboot.bootdevice=1d84000.ufshc earlycon=msm_geni_serial,0x880000 loglevel=8 ignore_loglevel";
 
     return params;
 }
