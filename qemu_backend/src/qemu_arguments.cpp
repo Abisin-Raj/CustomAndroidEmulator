@@ -54,10 +54,10 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
     }
 
     // Network: user-mode + host-to-guest port forwarding for input_bridge TCP server.
-    // input_bridge inside the guest listens on :5555. We forward host port
-    // params.inputBridgeHostPort → guest :5555 so the Qt host can send key events.
+    // input_bridge inside the guest listens on :7777. We forward host port
+    // params.inputBridgeHostPort → guest :7777 so the Qt host can send key events.
     if (params.enableInputBridge) {
-        QString hostfwd = QString("user,id=net0,hostfwd=tcp::%1-:5555").arg(params.inputBridgeHostPort);
+        QString hostfwd = QString("user,id=net0,hostfwd=tcp::%1-:7777").arg(params.inputBridgeHostPort);
         args << "-netdev" << hostfwd << "-device" << "virtio-net-pci,netdev=net0";
     }
 

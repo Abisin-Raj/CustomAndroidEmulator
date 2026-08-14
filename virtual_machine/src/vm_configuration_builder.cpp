@@ -26,8 +26,10 @@ QemuConfigParameters VmConfigurationBuilder::build(
         params.kernelPath = tempKernelPath;
     }
 
-    // Use verified recovery ramdisk if present
-    if (std::filesystem::exists("C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidEmulator/recovery_ramdisk.gz")) {
+    // Phase 11.1: Use boot_ramdisk.gz (normal Android system boot)
+    if (std::filesystem::exists("C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidEmulator/boot_ramdisk.gz")) {
+        params.ramdiskPath = "C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidEmulator/boot_ramdisk.gz";
+    } else if (std::filesystem::exists("C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidEmulator/recovery_ramdisk.gz")) {
         params.ramdiskPath = "C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidEmulator/recovery_ramdisk.gz";
     } else {
         params.ramdiskPath = tempRamdiskPath;
@@ -38,8 +40,8 @@ QemuConfigParameters VmConfigurationBuilder::build(
         params.dtbPath = "C:/qemu_work/virt_spmi_compact.dtb";
     }
 
-    // Set verified guest command line
-    params.cmdline = "rdinit=/init console=ttyMSM0,115200n8 nokaslr androidboot.selinux=permissive enforcing=0 androidboot.hardware=qcom androidboot.bootdevice=1d84000.ufshc earlycon=msm_geni_serial,0x880000 loglevel=8 ignore_loglevel";
+    // Set verified guest command line for Android userspace boot
+    params.cmdline = "console=ttyMSM0,115200n8 nokaslr androidboot.selinux=permissive enforcing=0 androidboot.hardware=qcom androidboot.mode=normal androidboot.bootdevice=1d84000.ufshc earlycon=msm_geni_serial,0x880000 loglevel=8 ignore_loglevel";
 
     return params;
 }
