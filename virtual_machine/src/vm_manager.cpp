@@ -259,21 +259,29 @@ void VmManager::sendPointerEvent(int x, int y, uint8_t buttonMask) {
 
 void VmManager::sendHardwareKey(HardwareKey key, bool pressed) {
     int linuxCode = 0;
+    uint32_t vncKeysym = 0;
     const char* keyName = "UNKNOWN";
 
     switch (key) {
         case HardwareKey::VolumeUp:
             linuxCode = 115; // KEY_VOLUMEUP
+            vncKeysym = 0xff52; // XK_Up -> Q_KEY_CODE_UP / VOLUMEUP
             keyName = "VolumeUp";
             break;
         case HardwareKey::VolumeDown:
             linuxCode = 114; // KEY_VOLUMEDOWN
+            vncKeysym = 0xff54; // XK_Down -> Q_KEY_CODE_DOWN / VOLUMEDOWN
             keyName = "VolumeDown";
             break;
         case HardwareKey::Power:
             linuxCode = 116; // KEY_POWER
+            vncKeysym = 0xff0d; // XK_Return -> Q_KEY_CODE_RET / POWER
             keyName = "Power";
             break;
+    }
+
+    if (vncKeysym != 0 && m_vncReceiver) {
+        m_vncReceiver->sendKeyEvent(vncKeysym, pressed);
     }
 
     if (linuxCode != 0 && m_launcher) {
