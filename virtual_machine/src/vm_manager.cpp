@@ -6,6 +6,7 @@
 #include "qemu_backend/qemu_arguments.h"
 #include "qemu_backend/qemu_launcher.h"
 #include "qemu_backend/smc_interceptor.h"
+#include "qemu_backend/vnc_frame_receiver.h"
 #include "boot_events/event_dispatcher.h"
 #include "boot_pipeline/boot_pipeline_manager.h"
 #include "kernel_runtime/kernel_commandline.h"
@@ -22,6 +23,7 @@ VmManager::VmManager(QObject* parent)
     , m_launcher(new QemuLauncher(this))
     , m_dispatcher(new EventDispatcher(this))
     , m_pipelineManager(new BootPipelineManager(m_dispatcher))
+    , m_vncReceiver(new qemu_backend::VncFrameReceiver(this))
     , m_smcDispatcher(new firmware::SmcDispatcher())
     , m_isRunning(false) {
     m_pipelineManager->initializeDefaultDetectors();
@@ -33,6 +35,9 @@ VmManager::VmManager(QObject* parent)
     connect(m_launcher, &QemuLauncher::stateChanged, this, &VmManager::onLauncherStateChanged);
     connect(m_launcher, &QemuLauncher::finished, this, &VmManager::onLauncherFinished);
     connect(m_launcher, &QemuLauncher::logLineRead, this, &VmManager::onLogLineRead);
+
+    // Forward live 32-bit RGBA display frames from QEMU scanout to DisplayViewport
+    connect(m_vncReceiver, &qemu_backend::VncFrameReceiver::frameReady, this, &VmManager::frameReady);
 }
 
 VmManager::~VmManager() {
@@ -205,7 +210,10 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
         return false;
     }
 
-    // 7. Start SMC interceptor thread (connects to QEMU's GDB stub)
+    // 7. Connect VNC frame receiver to QEMU display scanout (127.0.0.1:5900)
+    m_vncReceiver->connectToServer("127.0.0.1", 5900);
+
+    // 8. Start SMC interceptor thread (connects to QEMU's GDB stub if required)
     if (interceptEnabled && m_smcInterceptor) {
         if (!m_smcInterceptor->start()) {
             LOG_QEMU_WARN("VmManager: SMC interceptor failed to start. "
@@ -220,6 +228,9 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
 }
 
 void VmManager::stopVm() {
+    if (m_vncReceiver) {
+        m_vncReceiver->disconnectFromServer();
+    }
     if (m_smcInterceptor) {
         m_smcInterceptor->stop();
     }
@@ -228,6 +239,39 @@ void VmManager::stopVm() {
 
 bool VmManager::isVmRunning() const {
     return m_isRunning && m_launcher->isRunning();
+}
+
+void VmManager::sendPointerEvent(int x, int y, uint8_t buttonMask) {
+    if (m_vncReceiver) {
+        m_vncReceiver->sendPointerEvent(x, y, buttonMask);
+    }
+    if (m_launcher) {
+        QByteArray pkt;
+        pkt.append('T');
+        pkt.append(static_cast<char>((x >> 8) & 0xff));
+        pkt.append(static_cast<char>(x & 0xff));
+        pkt.append(static_cast<char>((y >> 8) & 0xff));
+        pkt.append(static_cast<char>(y & 0xff));
+        pkt.append(buttonMask ? 1 : 0);
+        m_launcher->writeData(pkt);
+    }
+}
+
+void VmManager::sendKeyEvent(uint32_t keysym, bool down) {
+    if (m_vncReceiver) {
+        m_vncReceiver->sendKeyEvent(keysym, down);
+    }
+    if (down && m_launcher) {
+        if (keysym == 0xff52) { // Arrow Up -> Volume Up
+            m_launcher->writeData("U");
+        } else if (keysym == 0xff54) { // Arrow Down -> Volume Down
+            m_launcher->writeData("D");
+        } else if (keysym == 0xff0d) { // Return / Enter -> Power / Select
+            m_launcher->writeData("P");
+        } else if (keysym == 0xff1b) { // Escape / Back
+            m_launcher->writeData("B");
+        }
+    }
 }
 
 void VmManager::onLogLineRead(const QString& line) {

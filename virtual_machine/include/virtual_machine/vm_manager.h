@@ -9,7 +9,10 @@ class EventDispatcher;
 class BootPipelineManager;
 
 namespace firmware { class SmcDispatcher; }
-namespace qemu_backend { class SmcInterceptor; }
+namespace qemu_backend { 
+    class SmcInterceptor; 
+    class VncFrameReceiver; 
+}
 
 class VmManager : public QObject {
     Q_OBJECT
@@ -35,6 +38,16 @@ public:
     EventDispatcher* getDispatcher() const { return m_dispatcher; }
     BootPipelineManager* getPipelineManager() const { return m_pipelineManager; }
 
+    /**
+     * @brief Dispatches pointer (touch/mouse) events to the running guest VM.
+     */
+    void sendPointerEvent(int x, int y, uint8_t buttonMask);
+
+    /**
+     * @brief Dispatches key events to the running guest VM.
+     */
+    void sendKeyEvent(uint32_t keysym, bool down);
+
 signals:
     void vmStateChanged(bool running);
     void vmFinished(int exitCode);
@@ -49,6 +62,7 @@ private:
     QemuLauncher*       m_launcher       = nullptr;
     EventDispatcher*    m_dispatcher     = nullptr;
     BootPipelineManager* m_pipelineManager = nullptr;
+    qemu_backend::VncFrameReceiver* m_vncReceiver = nullptr;
 
     // Firmware compatibility layer — intercepts SMC calls via QEMU GDB stub
     firmware::SmcDispatcher*        m_smcDispatcher  = nullptr;

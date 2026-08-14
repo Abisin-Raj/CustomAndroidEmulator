@@ -25,8 +25,8 @@
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent) {
     setWindowTitle("Custom Android Emulator");
-    resize(900, 550);
-    setMinimumSize(750, 450);
+    resize(1200, 800);
+    setMinimumSize(950, 650);
 
     // Initialize configuration files
     core::ConfigManager::initializeDefaultConfigs();
@@ -44,6 +44,8 @@ MainWindow::MainWindow(QWidget* parent)
 
     m_displayViewport = new DisplayViewport(this);
     connect(m_vmManager, &VmManager::frameReady, m_displayViewport, &DisplayViewport::updateFramebuffer);
+    connect(m_displayViewport, &DisplayViewport::pointerEvent, m_vmManager, &VmManager::sendPointerEvent);
+    connect(m_displayViewport, &DisplayViewport::keyEvent, m_vmManager, &VmManager::sendKeyEvent);
 
     setupUi();
     
@@ -63,6 +65,7 @@ void MainWindow::setupUi() {
     m_sidebarList = new QListWidget(this);
     m_sidebarList->setFixedWidth(180);
     m_sidebarList->addItem("Dashboard");
+    m_sidebarList->addItem("Display");
     m_sidebarList->addItem("ROMs");
     m_sidebarList->addItem("Settings");
     m_sidebarList->addItem("Logs");
@@ -75,6 +78,7 @@ void MainWindow::setupUi() {
     mainLayout->addWidget(m_stackedWidget);
 
     setupDashboardPage();
+    setupDisplayPage();
     setupRomsPage();
     setupSettingsPage();
     setupLogsPage();
@@ -91,17 +95,40 @@ void MainWindow::onSidebarSelectionChanged(QListWidgetItem* current, QListWidget
     if (text == "Dashboard") {
         m_stackedWidget->setCurrentIndex(0);
         updateDashboardStats();
-    } else if (text == "ROMs") {
+    } else if (text == "Display") {
         m_stackedWidget->setCurrentIndex(1);
+    } else if (text == "ROMs") {
+        m_stackedWidget->setCurrentIndex(2);
         loadRomsList();
     } else if (text == "Settings") {
-        m_stackedWidget->setCurrentIndex(2);
-    } else if (text == "Logs") {
         m_stackedWidget->setCurrentIndex(3);
+    } else if (text == "Logs") {
+        m_stackedWidget->setCurrentIndex(4);
         refreshLogPanel();
     } else if (text == "About") {
-        m_stackedWidget->setCurrentIndex(4);
+        m_stackedWidget->setCurrentIndex(5);
     }
+}
+
+void MainWindow::setupDisplayPage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(10, 10, 10, 10);
+    layout->setSpacing(10);
+
+    auto* headerLayout = new QHBoxLayout();
+    auto* titleLabel = new QLabel("Live Android Display Viewport", this);
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(14);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    headerLayout->addWidget(titleLabel);
+    headerLayout->addStretch();
+
+    layout->addLayout(headerLayout);
+    layout->addWidget(m_displayViewport, 1);
+
+    m_stackedWidget->addWidget(page);
 }
 
 void MainWindow::setupDashboardPage() {
@@ -344,9 +371,7 @@ void MainWindow::onVmStateChanged(bool running) {
         m_removeBtn->setEnabled(false);
         m_infoBtn->setEnabled(false);
         m_romsTable->setEnabled(false);
-        m_sidebarList->item(0)->setFlags(m_sidebarList->item(0)->flags() & ~Qt::ItemIsEnabled); // Disable dashboard
-        m_sidebarList->item(1)->setFlags(m_sidebarList->item(1)->flags() & ~Qt::ItemIsEnabled); // Disable ROMs
-        m_sidebarList->item(2)->setFlags(m_sidebarList->item(2)->flags() & ~Qt::ItemIsEnabled); // Disable Settings
+        m_sidebarList->setCurrentRow(1); // Auto-switch to live Display Viewport
     } else {
         m_statusLabel->setText("Status: Ready");
         m_launchBtn->setText("Launch");

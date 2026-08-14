@@ -22,6 +22,7 @@ public:
     bool start(const std::string& qemuPath, const QStringList& args);
     void stop();
     bool isRunning() const;
+    void writeData(const QByteArray& data);
 
 signals:
     void stateChanged(bool running);

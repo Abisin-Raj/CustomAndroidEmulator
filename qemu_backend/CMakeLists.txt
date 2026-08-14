@@ -6,12 +6,14 @@ add_library(qemu_backend STATIC
     include/qemu_backend/cpu_wake_backend.h
     include/qemu_backend/qemu_cpu_wake_backend.h
     include/qemu_backend/smc_interceptor.h
+    include/qemu_backend/vnc_frame_receiver.h
     src/qemu_detector.cpp
     src/qemu_arguments.cpp
     src/qemu_launcher.cpp
     src/gdb_rsp_client.cpp
     src/qemu_cpu_wake_backend.cpp
     src/smc_interceptor.cpp
+    src/vnc_frame_receiver.cpp
 )
 
 set_target_properties(qemu_backend PROPERTIES

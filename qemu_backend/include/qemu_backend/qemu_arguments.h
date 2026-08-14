@@ -12,7 +12,10 @@ struct QemuConfigParameters {
     std::string dtbPath;
     std::string cmdline;
     std::string extraArgs;
-    bool nographic      = true;
+    bool nographic      = false;
+    bool enableVnc      = true;
+    std::string vncAddress = "127.0.0.1:0";
+    std::string displayDevice = "ramfb";
     // When true, appends -d unimp,guest_errors -D qemu_trace.log to observe
     // guest accesses to unmapped/unimplemented MMIO regions.
     bool enableMmioTrace = false;

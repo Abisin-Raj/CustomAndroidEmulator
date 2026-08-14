@@ -10,41 +10,36 @@ QemuConfigParameters VmConfigurationBuilder::build(
     const std::string& tempRamdiskPath
 ) {
     QemuConfigParameters params;
-    params.cpu       = profile.cpu + ",psci-conduit=1";
-    params.machine   = profile.machine;
-    params.memory    = profile.memory;
-    params.nographic = profile.nographic;
-    // Phase 6.6A/B investigation: capture unmapped MMIO accesses (-d unimp,guest_errors).
-    // Remove or gate behind a flag once the secondary CPU boot mechanism is identified.
-    params.enableMmioTrace = true;
-    // NOTE: enableDtbDump uses -machine virt,dumpdtb=... (machine property, not a top-level flag).
-    // DTB is obtained via a direct QEMU invocation in the investigation script instead.
-    params.kernelPath   = tempKernelPath;
-    params.ramdiskPath  = tempRamdiskPath;
+    params.cpu       = "cortex-a55";
+    params.machine   = "virt,gic-version=3";
+    params.memory    = "4096";
+    params.nographic = false;
+    params.enableVnc = true;
+    params.displayDevice = "ramfb";
+    params.vncAddress = "127.0.0.1:0";
+    params.enableMmioTrace = false;
 
-    std::filesystem::path configPath = romDir / "boot_config.json";
-    if (std::filesystem::exists(configPath)) {
-        try {
-            std::ifstream in(configPath);
-            nlohmann::json j;
-            in >> j;
-
-            LOG_BOOT_INFO("VmConfigurationBuilder: Mapping profile '{}' parameters using boot config v{}", 
-                profile.name, j.value("version", 1));
-
-            // Load extra VM configurations if specified in boot_config
-            if (j.contains("vm_args")) {
-                params.extraArgs = j.value("vm_args", "");
-            }
-            if (j.contains("cmdline")) {
-                params.cmdline = j.value("cmdline", "");
-            }
-        } catch (const std::exception& e) {
-            LOG_BOOT_ERROR("VmConfigurationBuilder: Failed to parse boot_config.json: {}", e.what());
-        }
+    // Use rebuilt kernel if present, otherwise tempKernelPath
+    if (std::filesystem::exists("C:/qemu_work/kernel.img")) {
+        params.kernelPath = "C:/qemu_work/kernel.img";
     } else {
-        LOG_BOOT_WARN("VmConfigurationBuilder: boot_config.json missing in ROM directory. Building VM using profile fallbacks.");
+        params.kernelPath = tempKernelPath;
     }
+
+    // Use verified recovery ramdisk if present
+    if (std::filesystem::exists("C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidEmulator/recovery_ramdisk.gz")) {
+        params.ramdiskPath = "C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidEmulator/recovery_ramdisk.gz";
+    } else {
+        params.ramdiskPath = tempRamdiskPath;
+    }
+
+    // Use compact SPMI DTB
+    if (std::filesystem::exists("C:/qemu_work/virt_spmi_compact.dtb")) {
+        params.dtbPath = "C:/qemu_work/virt_spmi_compact.dtb";
+    }
+
+    // Set verified guest command line
+    params.cmdline = "rdinit=/init console=ttyMSM0,115200n8 nokaslr androidboot.hardware=qcom androidboot.bootdevice=1d84000.ufshc earlycon=msm_geni_serial,0x880000 loglevel=8 ignore_loglevel";
 
     return params;
 }

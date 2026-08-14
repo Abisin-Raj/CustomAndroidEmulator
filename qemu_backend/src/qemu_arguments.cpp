@@ -10,6 +10,11 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
 
     if (params.nographic) {
         args << "-nographic";
+    } else if (params.enableVnc) {
+        if (!params.displayDevice.empty()) {
+            args << "-device" << QString::fromStdString(params.displayDevice);
+        }
+        args << "-vnc" << QString::fromStdString(params.vncAddress);
     }
 
     if (!params.kernelPath.empty()) {

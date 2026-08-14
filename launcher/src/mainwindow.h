@@ -49,6 +49,7 @@ private slots:
 private:
     void setupUi();
     void setupDashboardPage();
+    void setupDisplayPage();
     void setupRomsPage();
     void setupSettingsPage();
     void setupLogsPage();

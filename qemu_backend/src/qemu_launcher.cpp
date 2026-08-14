@@ -61,7 +61,13 @@ void QemuLauncher::stop() {
 }
 
 bool QemuLauncher::isRunning() const {
-    return m_process->state() == QProcess::Running;
+    return m_process && m_process->state() == QProcess::Running;
+}
+
+void QemuLauncher::writeData(const QByteArray& data) {
+    if (m_process && m_process->state() == QProcess::Running) {
+        m_process->write(data);
+    }
 }
 
 void QemuLauncher::onReadyReadStandardOutput() {
