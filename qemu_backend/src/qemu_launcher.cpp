@@ -67,6 +67,7 @@ bool QemuLauncher::isRunning() const {
 void QemuLauncher::writeData(const QByteArray& data) {
     if (m_process && m_process->state() == QProcess::Running) {
         m_process->write(data);
+        m_process->waitForBytesWritten(5);
     }
 }
 

@@ -279,6 +279,11 @@ void VmManager::sendHardwareKey(HardwareKey key, bool pressed) {
     if (linuxCode != 0 && m_launcher) {
         QByteArray pkt = QString("EV_KEY %1 %2\n").arg(linuxCode).arg(pressed ? 1 : 0).toUtf8();
         m_launcher->writeData(pkt);
+        if (pressed) {
+            if (key == HardwareKey::VolumeUp) m_launcher->writeData("U\n");
+            else if (key == HardwareKey::VolumeDown) m_launcher->writeData("D\n");
+            else if (key == HardwareKey::Power) m_launcher->writeData("P\n");
+        }
         LOG_INFO("VmManager: HardwareKey [{}] -> Linux EV_KEY {} {}", keyName, linuxCode, pressed ? "PRESS" : "RELEASE");
     }
 }
