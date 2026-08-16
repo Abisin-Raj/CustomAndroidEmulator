@@ -50,8 +50,8 @@ QemuConfigParameters VmConfigurationBuilder::build(
         params.vendorImagePath = vendorImg.string();
     }
 
-    // Set verified guest command line for Android userspace boot (force_normal_boot triggers first-stage partition mounts)
-    params.cmdline = "console=ttyMSM0,115200n8 nokaslr androidboot.selinux=permissive enforcing=0 androidboot.hardware=qcom androidboot.mode=normal androidboot.force_normal_boot=1 androidboot.bootdevice=1d84000.ufshc earlycon=msm_geni_serial,0x880000 loglevel=8 ignore_loglevel";
+    // Phase 11.2 Step 4: Boot mode investigation (normal boot mode flags)
+    params.cmdline = "rdinit=/init console=ttyMSM0,115200n8 nokaslr androidboot.hardware=qcom androidboot.bootdevice=1d84000.ufshc androidboot.mode=normal androidboot.bootmode=normal androidboot.force_normal_boot=1 androidboot.selinux=permissive enforcing=0 earlycon=msm_geni_serial,0x880000 loglevel=8 ignore_loglevel";
 
     return params;
 }
