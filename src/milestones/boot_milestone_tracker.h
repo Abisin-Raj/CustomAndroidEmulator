@@ -32,6 +32,7 @@ enum class BootMilestone {
 struct MilestoneStatus {
     std::string name;
     bool achieved{false};
+    double elapsed_seconds{0.0};
     std::string proof_detail;
     std::string timestamp;
 };
@@ -40,8 +41,11 @@ class BootMilestoneTracker {
 public:
     static BootMilestoneTracker& Instance();
 
+    void ResetSession();
     void MarkAchieved(BootMilestone milestone, const std::string& proof_detail);
+    void MarkAchievedWithTime(BootMilestone milestone, double elapsed_sec, const std::string& proof_detail);
     bool IsAchieved(BootMilestone milestone) const;
+    double GetElapsedSeconds(BootMilestone milestone) const;
 
     void PrintProgress() const;
     nlohmann::json ToJson() const;
@@ -51,7 +55,9 @@ private:
     ~BootMilestoneTracker() = default;
 
     mutable std::mutex mutex_;
+    std::chrono::steady_clock::time_point session_start_;
     std::map<BootMilestone, MilestoneStatus> milestones_;
 };
 
 } // namespace emulator::milestones
+
