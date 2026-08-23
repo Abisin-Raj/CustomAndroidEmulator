@@ -24,7 +24,9 @@ add_subdirectory(src/logger)
 add_subdirectory(src/gdb)
 add_subdirectory(src/storage)
 add_subdirectory(src/smc)
+add_subdirectory(src/binder)
 add_subdirectory(core)
+
 
 
 

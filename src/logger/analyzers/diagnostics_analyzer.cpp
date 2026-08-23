@@ -113,17 +113,35 @@ void DiagnosticsAnalyzer::DetectSmcRetryLoops(const std::vector<models::LogEntry
 
 void DiagnosticsAnalyzer::DetectBinderStalls(const std::vector<models::LogEntry>& history, DiagnosticsReport& report) const {
     for (const auto& entry : history) {
-        if (entry.subsystem == models::Subsystem::BINDER &&
-            (entry.message.find("DEAD_OBJECT") != std::string::npos || entry.message.find("NO_REPLY") != std::string::npos)) {
-            Anomaly a;
-            a.type = "Binder Stall";
-            a.subsystem = "BINDER";
-            a.details = entry.message;
-            a.likely_cause = "Target service died or did not respond to BC_TRANSACTION";
-            report.detected_anomalies.push_back(a);
+        if (entry.subsystem == models::Subsystem::BINDER) {
+            if (entry.message.find("DEAD_REPLY") != std::string::npos ||
+                entry.message.find("DEAD_OBJECT") != std::string::npos ||
+                entry.message.find("BR_DEAD_REPLY") != std::string::npos) {
+                Anomaly a;
+                a.type = "Dead Object";
+                a.subsystem = "BINDER";
+                a.details = entry.message;
+                a.likely_cause = "Target Binder service process died before completing reply";
+                report.detected_anomalies.push_back(a);
+            } else if (entry.duration_ms.has_value() && entry.duration_ms.value() > 5000.0) {
+                Anomaly a;
+                a.type = "Binder Stall";
+                a.subsystem = "BINDER";
+                std::ostringstream ss;
+                ss << "Transaction stalled for " << std::fixed << std::setprecision(1)
+                   << entry.duration_ms.value() << " ms (" << entry.message << ")";
+                a.details = ss.str();
+                if (entry.message.find("ISurfaceComposer") != std::string::npos || entry.message.find("0x3fc") != std::string::npos) {
+                    a.likely_cause = "SurfaceFlinger blocked before composition or VSYNC acquisition failed";
+                } else {
+                    a.likely_cause = "Target service thread deadlock or high CPU starvation";
+                }
+                report.detected_anomalies.push_back(a);
+            }
         }
     }
 }
+
 
 void DiagnosticsAnalyzer::DetectUfsTimeouts(const std::vector<models::LogEntry>& history, DiagnosticsReport& report) const {
     for (const auto& entry : history) {

@@ -30,6 +30,11 @@ struct Metrics {
     uint64_t surfaceflinger_ms{0};
     uint64_t syscalls{0};
     uint64_t binder_transactions{0};
+    uint64_t binder_failed{0};
+    double avg_binder_latency_ms{0.0};
+    uint64_t surfacecomposer_tx{0};
+    uint64_t activitymanager_tx{0};
+    uint64_t windowmanager_tx{0};
     uint64_t smc_calls{0};
     uint64_t smc_failures{0};
     uint64_t smc_retry_loops{0};
@@ -55,12 +60,18 @@ struct Metrics {
         j["surfaceflinger_ms"] = surfaceflinger_ms;
         j["syscalls"] = syscalls;
         j["binder_transactions"] = binder_transactions;
+        j["binder_failed"] = binder_failed;
+        j["avg_binder_latency_ms"] = avg_binder_latency_ms;
+        j["surfacecomposer_tx"] = surfacecomposer_tx;
+        j["activitymanager_tx"] = activitymanager_tx;
+        j["windowmanager_tx"] = windowmanager_tx;
         j["smc_calls"] = smc_calls;
         j["smc_failures"] = smc_failures;
         j["smc_retry_loops"] = smc_retry_loops;
         j["avg_smc_latency_us"] = avg_smc_latency_us;
         j["top_smc_opcodes"] = top_smc_opcodes;
         j["ufs_reads"] = ufs_reads;
+
         j["total_errors"] = total_errors;
         j["total_warnings"] = total_warnings;
         j["total_gdb_hits"] = total_gdb_hits;
