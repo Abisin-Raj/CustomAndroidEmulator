@@ -20,7 +20,14 @@ message(STATUS "Found Qt6: ${Qt6_VERSION}")
 message(STATUS "Found LibArchive: ${LibArchive_VERSION}")
 
 # Add subdirectories
+add_subdirectory(src/logger)
+add_subdirectory(src/gdb)
+add_subdirectory(src/storage)
+add_subdirectory(src/smc)
 add_subdirectory(core)
+
+
+
 add_subdirectory(behavior_exploration_tool)
 add_subdirectory(models)
 add_subdirectory(image_converter)
@@ -38,3 +45,5 @@ add_subdirectory(firmware)
 add_subdirectory(kernel_analysis)
 add_subdirectory(launcher)
 add_subdirectory(tests)
+
+
