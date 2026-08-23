@@ -27,7 +27,9 @@ add_subdirectory(src/smc)
 add_subdirectory(src/binder)
 add_subdirectory(src/input)
 add_subdirectory(src/milestones)
+add_subdirectory(src/runtime)
 add_subdirectory(core)
+
 
 
 
