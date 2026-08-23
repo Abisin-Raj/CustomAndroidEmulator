@@ -54,4 +54,22 @@ add_subdirectory(kernel_analysis)
 add_subdirectory(launcher)
 add_subdirectory(tests)
 
+# Interactive Emulator Main Executable
+add_executable(emulator src/main.cpp)
+target_link_libraries(emulator PRIVATE
+    emulator_runtime
+    emulator_milestones
+    emulator_input
+    emulator_binder
+    emulator_smc
+    emulator_storage
+    emulator_gdb
+    emulator_logger
+    nlohmann_json::nlohmann_json
+)
+if(WIN32)
+    target_link_libraries(emulator PRIVATE gdi32 user32 ws2_32)
+endif()
+
+
 
