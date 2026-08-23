@@ -37,7 +37,8 @@ void initLogger() {
     // Set default log level to debug
     spdlog::set_level(spdlog::level::debug);
     
-    LOG_INFO("Core logging initialized. File output written to executable's logs/launcher.log.");
+    LOG_LAUNCHER_INFO("Core logging initialized. File output written to executable's logs/launcher.log.");
 }
+
 
 } // namespace core
