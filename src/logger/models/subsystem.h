@@ -16,6 +16,7 @@ enum class Subsystem {
     ANDROID,
     BINDER,
     DISPLAY,
+    INPUT,
     DIAGNOSTICS,
     UNKNOWN
 };
@@ -33,6 +34,7 @@ inline std::string_view ToString(Subsystem subsys) {
         case Subsystem::ANDROID:     return "ANDROID";
         case Subsystem::BINDER:      return "BINDER";
         case Subsystem::DISPLAY:     return "DISPLAY";
+        case Subsystem::INPUT:       return "INPUT";
         case Subsystem::DIAGNOSTICS: return "DIAGNOSTICS";
         default:                     return "UNKNOWN";
     }
@@ -51,9 +53,11 @@ inline std::string_view ToLogFileName(Subsystem subsys) {
         case Subsystem::ANDROID:     return "android.log";
         case Subsystem::BINDER:      return "binder.log";
         case Subsystem::DISPLAY:     return "display.log";
+        case Subsystem::INPUT:       return "input.log";
         case Subsystem::DIAGNOSTICS: return "diagnostics.log";
         default:                     return "system.log";
     }
 }
+
 
 } // namespace emulator::logger::models

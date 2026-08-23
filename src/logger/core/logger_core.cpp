@@ -28,8 +28,10 @@ void LoggerCore::Initialize(const std::filesystem::path& session_dir) {
         models::Subsystem::ANDROID,
         models::Subsystem::BINDER,
         models::Subsystem::DISPLAY,
+        models::Subsystem::INPUT,
         models::Subsystem::DIAGNOSTICS
     };
+
 
 
     for (auto subsys : all_subsystems) {
