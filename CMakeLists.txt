@@ -25,7 +25,9 @@ add_subdirectory(src/gdb)
 add_subdirectory(src/storage)
 add_subdirectory(src/smc)
 add_subdirectory(src/binder)
+add_subdirectory(src/milestones)
 add_subdirectory(core)
+
 
 
 
