@@ -138,18 +138,16 @@ int main(int argc, char* argv[]) {
     surface.SwapBuffers();
 
     uint64_t frame_index = 0;
-    auto loop_start = std::chrono::steady_clock::now();
+    FrameStats stats;
 
     while (window.ProcessEvents() && frame_index < 180) { // Render 180 live frames (3.0 seconds test batch)
         surface.WaitForVsync();
         window.RenderFrame(surface);
 
-        if (frame_index % 60 == 0) {
-            double fps = surface.GetCurrentFps();
-            logger.Log(Subsystem::DISPLAY, LogLevel::INFO, 
-                "Present Frame #" + std::to_string(frame_index) + 
-                " | RAMFB scanout: 0xffffff800845a000 | VSYNC: " + 
-                std::to_string(static_cast<int>(fps)) + ".0 FPS (16.6ms)");
+        if (surface.HasNewSecondStats(stats)) {
+            logger.Log(Subsystem::DISPLAY, LogLevel::INFO,
+                "Display Pacing Report (1s window) -> " + stats.FormatLog());
+            std::cout << "    [VSYNC 60Hz] " << stats.FormatLog() << "\n";
         }
         frame_index++;
     }
@@ -159,6 +157,7 @@ int main(int argc, char* argv[]) {
     tracker.MarkAchieved(BootMilestone::LAUNCHER_TOUCH_INTERACTION, "Tap event (540, 1200) delivered to QuickstepLauncher in 3.8ms");
 
     tracker.PrintProgress();
+
 
     // 8. Clean Shutdown on Window Close
     std::cout << "[*] Display window closed. Performing clean VM shutdown...\n";
