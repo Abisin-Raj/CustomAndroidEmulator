@@ -134,10 +134,19 @@ std::string GdbSession::ReceivePacket(int timeout_ms) {
     FD_SET(sock, &read_fds);
 
     timeval tv{};
-    tv.tv_sec = timeout_ms / 1000;
-    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    timeval* p_tv = nullptr;
+    if (timeout_ms > 0) {
+        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+        p_tv = &tv;
+    } else {
+        // Default 30s timeout for execution continuations
+        tv.tv_sec = 30;
+        tv.tv_usec = 0;
+        p_tv = &tv;
+    }
 
-    int sel = select(static_cast<int>(sock + 1), &read_fds, nullptr, nullptr, &tv);
+    int sel = select(static_cast<int>(sock + 1), &read_fds, nullptr, nullptr, p_tv);
     if (sel <= 0) return "";
 
     std::string buffer;
@@ -150,6 +159,7 @@ std::string GdbSession::ReceivePacket(int timeout_ms) {
         } else if (c == '#' && in_packet) {
             char cs[2];
             recv(sock, cs, 2, 0); // read 2 checksum chars
+            SendRaw("+");
             break;
         } else if (in_packet) {
             buffer.push_back(c);
@@ -160,6 +170,7 @@ std::string GdbSession::ReceivePacket(int timeout_ms) {
     }
     return buffer;
 }
+
 
 bool GdbSession::AddBreakpoint(const std::string& name, uint64_t address, const std::string& desc) {
     breakpoint_mgr_.Add(name, address, desc);
@@ -229,26 +240,37 @@ std::string GdbSession::ReadString(uint64_t address, size_t max_len) {
 }
 
 StopReply GdbSession::Continue() {
+    return ContinueUntilStop(30);
+}
+
+StopReply GdbSession::ContinueUntilStop(int max_wait_seconds) {
     if (!connected_) return StopReply{};
     SendRaw(RspDecoder::FormatPacket("vCont;c"));
-    std::string packet = ReceivePacket(0); // wait until stop reply
-    auto stop = RspDecoder::ParseStopReply(packet);
 
-    if (stop.pc.has_value()) {
-        auto regs = ReadRegisters();
-        regs.pc = stop.pc.value();
-        if (stop.lr.has_value()) regs.lr = stop.lr.value();
-        if (stop.sp.has_value()) regs.sp = stop.sp.value();
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() < max_wait_seconds) {
+        std::string packet = ReceivePacket(2000);
+        if (!packet.empty() && packet[0] == 'T') {
+            auto stop = RspDecoder::ParseStopReply(packet);
+            if (stop.pc.has_value()) {
+                auto regs = ReadRegisters();
+                regs.pc = stop.pc.value();
+                if (stop.lr.has_value()) regs.lr = stop.lr.value();
+                if (stop.sp.has_value()) regs.sp = stop.sp.value();
 
-        auto bp_info = breakpoint_mgr_.FindByAddress(stop.pc.value());
-        if (bp_info.has_value()) {
-            regs.bp_name = bp_info.value().name;
+                auto bp_info = breakpoint_mgr_.FindByAddress(stop.pc.value());
+                if (bp_info.has_value()) {
+                    regs.bp_name = bp_info.value().name;
+                }
+
+                breakpoint_mgr_.OnHit(stop.pc.value(), regs);
+                return stop;
+            }
         }
-
-        breakpoint_mgr_.OnHit(stop.pc.value(), regs);
     }
-    return stop;
+    return StopReply{};
 }
+
 
 StopReply GdbSession::Step() {
     if (!connected_) return StopReply{};

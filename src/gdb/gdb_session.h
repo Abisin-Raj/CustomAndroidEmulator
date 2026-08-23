@@ -27,8 +27,10 @@ public:
     std::string ReadString(uint64_t address, size_t max_len = 128);
 
     StopReply Continue();
+    StopReply ContinueUntilStop(int max_wait_seconds = 120);
     StopReply Step();
     StopReply StepPastBreakpoint(uint64_t address);
+
 
     BreakpointManager& GetBreakpointManager();
 
