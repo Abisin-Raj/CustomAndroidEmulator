@@ -52,22 +52,36 @@ void FramebufferSurface::SwapBuffers() {
 }
 
 void FramebufferSurface::WaitForVsync() {
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(now - last_vsync_time_).count();
+    if (frame_count_ == 0) {
+        last_vsync_time_ = std::chrono::steady_clock::now();
+        current_fps_ = 60.0;
+    }
 
-    const int64_t target_interval_us = 16666; // 60.0 Hz = ~16,666 µs
-    if (elapsed_us < target_interval_us) {
-        std::this_thread::sleep_for(std::chrono::microseconds(target_interval_us - elapsed_us));
+    auto target_time = last_vsync_time_ + std::chrono::microseconds(16666); // Exactly 60.0 Hz
+    auto now = std::chrono::steady_clock::now();
+
+    if (now < target_time) {
+        auto remaining_us = std::chrono::duration_cast<std::chrono::microseconds>(target_time - now).count();
+        if (remaining_us > 2000) {
+            std::this_thread::sleep_for(std::chrono::microseconds(remaining_us - 1500));
+        }
+        // Precision spin-wait for final sub-millisecond accuracy
+        while (std::chrono::steady_clock::now() < target_time) {
+            std::this_thread::yield();
+        }
     }
 
     auto post_vsync = std::chrono::steady_clock::now();
     double frame_time_ms = std::chrono::duration_cast<std::chrono::microseconds>(post_vsync - last_vsync_time_).count() / 1000.0;
     if (frame_time_ms > 0.0) {
-        current_fps_ = 1000.0 / frame_time_ms;
+        double instant_fps = 1000.0 / frame_time_ms;
+        current_fps_ = (frame_count_ == 0) ? 60.0 : (0.8 * current_fps_ + 0.2 * instant_fps);
     }
     last_vsync_time_ = post_vsync;
     frame_count_++;
 }
+
+
 
 double FramebufferSurface::GetCurrentFps() const {
     return current_fps_;
