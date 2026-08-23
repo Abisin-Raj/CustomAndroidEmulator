@@ -33,7 +33,14 @@ BootMilestoneTracker::BootMilestoneTracker() {
     milestones_[BootMilestone::BINDER_TRANSACTION] = {"Binder Transaction", false, "", ""};
     milestones_[BootMilestone::SURFACEFLINGER_COMPOSITE] = {"SurfaceFlinger Composite", false, "", ""};
     milestones_[BootMilestone::FIRST_FRAME_SCANOUT] = {"First Frame", false, "", ""};
+    milestones_[BootMilestone::SYSTEMUI_PROCESS] = {"SystemUI Process", false, "", ""};
+    milestones_[BootMilestone::STATUS_BAR_SURFACE] = {"Status Bar Layer", false, "", ""};
+    milestones_[BootMilestone::NAV_BAR_SURFACE] = {"Navigation Bar Layer", false, "", ""};
+    milestones_[BootMilestone::EVENTHUB_OPEN] = {"EventHub /dev/input", false, "", ""};
+    milestones_[BootMilestone::INPUT_DISPATCHER_ROUTING] = {"InputDispatcher Active", false, "", ""};
+    milestones_[BootMilestone::LAUNCHER_TOUCH_INTERACTION] = {"Launcher3 Interaction", false, "", ""};
 }
+
 
 void BootMilestoneTracker::MarkAchieved(BootMilestone milestone, const std::string& proof_detail) {
     std::lock_guard<std::mutex> lock(mutex_);

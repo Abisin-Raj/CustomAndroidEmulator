@@ -19,8 +19,15 @@ enum class BootMilestone {
     BINDER_TRANSACTION,
     SURFACEFLINGER_COMPOSITE,
     FIRST_FRAME_SCANOUT,
+    SYSTEMUI_PROCESS,
+    STATUS_BAR_SURFACE,
+    NAV_BAR_SURFACE,
+    EVENTHUB_OPEN,
+    INPUT_DISPATCHER_ROUTING,
+    LAUNCHER_TOUCH_INTERACTION,
     COUNT
 };
+
 
 struct MilestoneStatus {
     std::string name;
