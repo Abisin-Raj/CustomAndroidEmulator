@@ -105,7 +105,6 @@ test_logs/
 logger/sessions/
 *.bak
 
-
 # ----------------------------------------------------------------------------
 # Boot session exports
 # ----------------------------------------------------------------------------
@@ -134,6 +133,43 @@ virt.dts
 extracted_fstab/
 docs/diagnostic_run_report.txt
 scratch/test_ramoops.ps1
+
+# ----------------------------------------------------------------------------
+# Debug/trace scripts folder (one-off GDB/QEMU session scripts)
+# ----------------------------------------------------------------------------
+scripts/
+
+# ----------------------------------------------------------------------------
+# Loose root-level debug artifacts
+# ----------------------------------------------------------------------------
+# DTB/DTS intermediates generated during debugging
+qemu_clusters.dtb
+qemu_clusters.dts
+qemu_generated.dtb
+qemu_generated.dts
+virt_qcom_gcc.dtb
+virt_qcom_gcc.dts
+virt_timer_fix.dtb
+virt_timer_fix.dts
+
+# Framebuffer captures
+guest_ramfb_raw.bin
+guest_ramfb_raw.png
+guest_ramfb_capture_*.png
+
+# One-off diagnostic C++ files (not part of the main source)
+diagnose_ramfb.cpp
+test_binder_integration.cpp
+test_gdb_integration.cpp
+test_input_integration.cpp
+test_instruction_tracer.cpp
+test_logger_integration.cpp
+test_runtime_integration.cpp
+test_smc_integration.cpp
+test_storage_integration.cpp
+
+# tools/ directory (generated tool binaries & outputs)
+tools/
 
 # ----------------------------------------------------------------------------
 # Allow diagnostic reports and artifact logs

@@ -93,6 +93,10 @@ bool GdbSession::Connect(const std::string& host, uint16_t port) {
     SendRaw(RspDecoder::FormatPacket("QStartNoAckMode"));
     ReceivePacket(1000);
 
+    // Enable QEMU Physical Memory Mode so GDB 'm' commands read guest physical RAM directly
+    SendRaw(RspDecoder::FormatPacket("Qqemu.PhyMemMode:1"));
+    ReceivePacket(1000);
+
     return true;
 }
 
@@ -129,43 +133,31 @@ std::string GdbSession::ReceivePacket(int timeout_ms) {
     if (!connected_) return "";
     SOCKET sock = static_cast<SOCKET>(socket_handle_);
 
-    fd_set read_fds;
-    FD_ZERO(&read_fds);
-    FD_SET(sock, &read_fds);
-
-    timeval tv{};
-    timeval* p_tv = nullptr;
-    if (timeout_ms > 0) {
-        tv.tv_sec = timeout_ms / 1000;
-        tv.tv_usec = (timeout_ms % 1000) * 1000;
-        p_tv = &tv;
-    } else {
-        // Default 30s timeout for execution continuations
-        tv.tv_sec = 30;
-        tv.tv_usec = 0;
-        p_tv = &tv;
-    }
-
-    int sel = select(static_cast<int>(sock + 1), &read_fds, nullptr, nullptr, p_tv);
-    if (sel <= 0) return "";
-
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms > 0 ? timeout_ms : 2000);
     std::string buffer;
-    char c;
     bool in_packet = false;
-    while (recv(sock, &c, 1, 0) == 1) {
-        if (c == '$') {
-            in_packet = true;
-            buffer.clear();
-        } else if (c == '#' && in_packet) {
-            char cs[2];
-            recv(sock, cs, 2, 0); // read 2 checksum chars
-            SendRaw("+");
-            break;
-        } else if (in_packet) {
-            buffer.push_back(c);
-        } else if (c == '+' || c == '-') {
-            // ACK / NAK
-            continue;
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(sock, &read_fds);
+        timeval tv{0, 20000}; // 20ms poll
+        int sel = select(static_cast<int>(sock + 1), &read_fds, nullptr, nullptr, &tv);
+        if (sel > 0) {
+            char c;
+            int n = recv(sock, &c, 1, 0);
+            if (n <= 0) break;
+            if (c == '$') {
+                in_packet = true;
+                buffer.clear();
+            } else if (c == '#' && in_packet) {
+                char cs[2];
+                recv(sock, cs, 2, 0);
+                SendRaw("+");
+                return buffer;
+            } else if (in_packet) {
+                buffer.push_back(c);
+            }
         }
     }
     return buffer;
@@ -222,12 +214,35 @@ RegisterSnapshot GdbSession::ReadRegisters() {
 
 std::vector<uint8_t> GdbSession::ReadMemory(uint64_t address, size_t length) {
     if (!connected_) return {};
-    std::ostringstream ss;
-    ss << "m" << std::hex << address << "," << length;
-    SendRaw(RspDecoder::FormatPacket(ss.str()));
-    std::string hex = ReceivePacket(1000);
-    return RspDecoder::HexToBytes(hex);
+
+    // Interrupt/Pause running target
+    SOCKET sock = static_cast<SOCKET>(socket_handle_);
+    char c = 0x03;
+    send(sock, &c, 1, 0);
+    ReceivePacket(1000);
+
+    std::vector<uint8_t> all_bytes;
+    all_bytes.reserve(length);
+    const size_t chunk_size = 1024;
+    size_t curr_len = 0;
+    while (curr_len < length) {
+        size_t to_read = std::min(length - curr_len, chunk_size);
+        std::ostringstream ss;
+        ss << "m" << std::hex << (address + curr_len) << "," << to_read;
+        SendRaw(RspDecoder::FormatPacket(ss.str()));
+        std::string hex = ReceivePacket(1000);
+        if (hex.empty() || hex[0] == 'E') break;
+        auto chunk = RspDecoder::HexToBytes(hex);
+        if (chunk.empty()) break;
+        all_bytes.insert(all_bytes.end(), chunk.begin(), chunk.end());
+        curr_len += chunk.size();
+    }
+
+    // Resume target execution
+    SendRaw(RspDecoder::FormatPacket("vCont;c"));
+    return all_bytes;
 }
+
 
 std::string GdbSession::ReadString(uint64_t address, size_t max_len) {
     auto bytes = ReadMemory(address, max_len);
@@ -270,6 +285,21 @@ StopReply GdbSession::ContinueUntilStop(int max_wait_seconds) {
     }
     return StopReply{};
 }
+
+bool GdbSession::ContinueAsync() {
+    if (!connected_) return false;
+    return SendRaw(RspDecoder::FormatPacket("vCont;c"));
+}
+
+bool GdbSession::Interrupt() {
+    if (!connected_) return false;
+    SOCKET sock = static_cast<SOCKET>(socket_handle_);
+    char c = 0x03;
+    send(sock, &c, 1, 0);
+    std::string reply = ReceivePacket(2000);
+    return !reply.empty();
+}
+
 
 
 StopReply GdbSession::Step() {

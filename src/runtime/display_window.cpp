@@ -17,7 +17,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
                 int x = LOWORD(lparam);
                 int y = HIWORD(lparam);
                 auto events = window->GetMouseTranslator().OnMouseDown(x, y);
-                // Dispatch if callback registered
+                auto pt = window->GetMouseTranslator().MapWindowToTouch(x, y);
+                if (pt.is_valid) {
+                    window->SetActiveTouch(pt.x, pt.y, true);
+                }
+                window->DispatchEvents(events);
             }
             return 0;
         }
@@ -26,24 +30,38 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
                 int x = LOWORD(lparam);
                 int y = HIWORD(lparam);
                 auto events = window->GetMouseTranslator().OnMouseMove(x, y);
+                auto pt = window->GetMouseTranslator().MapWindowToTouch(x, y);
+                if (pt.is_valid) {
+                    window->SetActiveTouch(pt.x, pt.y, true);
+                }
+                window->DispatchEvents(events);
             }
             return 0;
         }
         case WM_LBUTTONUP: {
             if (window) {
                 auto events = window->GetMouseTranslator().OnMouseUp();
+                window->SetActiveTouch(-1, -1, false);
+                window->DispatchEvents(events);
             }
             return 0;
         }
         case WM_KEYDOWN: {
             if (window) {
-                auto events = window->GetKeyboardTranslator().OnKeyDown(static_cast<uint32_t>(wparam));
+                uint32_t vk = static_cast<uint32_t>(wparam);
+                if (vk == 0x76 || vk == 0x7B) { // F7 or F12 -> Power button
+                    window->ToggleScreen();
+                }
+                auto events = window->GetKeyboardTranslator().OnKeyDown(vk);
+                window->DispatchEvents(events);
             }
             return 0;
         }
         case WM_KEYUP: {
             if (window) {
-                auto events = window->GetKeyboardTranslator().OnKeyUp(static_cast<uint32_t>(wparam));
+                uint32_t vk = static_cast<uint32_t>(wparam);
+                auto events = window->GetKeyboardTranslator().OnKeyUp(vk);
+                window->DispatchEvents(events);
             }
             return 0;
         }
@@ -75,6 +93,12 @@ DisplayWindow::~DisplayWindow() {
     Destroy();
 }
 
+void DisplayWindow::DispatchEvents(const std::vector<emulator::input::InputEventRecord>& events) {
+    if (input_callback_ && !events.empty()) {
+        input_callback_(events);
+    }
+}
+
 bool DisplayWindow::Create() {
 #if defined(_WIN32) || defined(_WIN64)
     WNDCLASSEX wc{};
@@ -83,16 +107,22 @@ bool DisplayWindow::Create() {
     wc.lpfnWndProc = WndProc;
     wc.hInstance = GetModuleHandle(nullptr);
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     wc.lpszClassName = "AndroidEmulatorWindowClass";
 
     RegisterClassEx(&wc);
 
+    int screen_w = GetSystemMetrics(SM_CXSCREEN);
+    int screen_h = GetSystemMetrics(SM_CYSCREEN);
+    int pos_x = (screen_w > static_cast<int>(window_width_)) ? (screen_w - window_width_) / 2 : 50;
+    int pos_y = (screen_h > static_cast<int>(window_height_)) ? (screen_h - window_height_) / 2 : 40;
+
     HWND hwnd = CreateWindowEx(
-        0,
+        WS_EX_APPWINDOW | WS_EX_TOPMOST,
         wc.lpszClassName,
         title_.c_str(),
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT,
+        pos_x, pos_y,
         window_width_, window_height_,
         nullptr, nullptr, wc.hInstance, nullptr
     );
@@ -106,7 +136,16 @@ bool DisplayWindow::Create() {
     window_handle_ = hwnd;
     device_context_ = GetDC(hwnd);
     is_open_ = true;
+
+    // Bring window to absolute foreground on user's active desktop
+    ShowWindow(hwnd, SW_SHOWNORMAL);
+    SetWindowPos(hwnd, HWND_TOPMOST, pos_x, pos_y, window_width_, window_height_, SWP_SHOWWINDOW);
+    SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    SetForegroundWindow(hwnd);
+    SetFocus(hwnd);
+    UpdateWindow(hwnd);
     return true;
+
 #else
     is_open_ = true;
     return true;
@@ -162,8 +201,50 @@ void DisplayWindow::RenderFrame(const FramebufferSurface& surface) {
     int win_w = rc.right - rc.left;
     int win_h = rc.bottom - rc.top;
 
+    if (!is_screen_on_) {
+        // Screen off: Black display
+        HBRUSH black_brush = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        FillRect(hdc, &rc, black_brush);
+        return;
+    }
+
     auto buffer = surface.GetBackBuffer();
     if (buffer.empty()) return;
+
+    uint64_t frame_id = surface.GetBackBufferFrameId();
+    std::string sha = surface.GetBackBufferSha256();
+    if (frame_id > 0 && !sha.empty()) {
+        static uint64_t last_logged_display_frame = 0;
+        if (frame_id != last_logged_display_frame) {
+            last_logged_display_frame = frame_id;
+            std::cout << "[DISPLAY] frame=" << frame_id << " sha256=" << sha << "\n" << std::flush;
+        }
+    }
+
+    // Draw active touch ripple circle directly into frame buffer if active
+    if (active_touch_.active && active_touch_.x >= 0 && active_touch_.y >= 0) {
+        int cx = active_touch_.x;
+        int cy = active_touch_.y;
+        int r = active_touch_.ripple_radius;
+        int w = surface.GetWidth();
+        int h = surface.GetHeight();
+
+        for (int dy = -r; dy <= r; ++dy) {
+            for (int dx = -r; dx <= r; ++dx) {
+                if (dx * dx + dy * dy <= r * r) {
+                    int px = cx + dx;
+                    int py = cy + dy;
+                    if (px >= 0 && px < w && py >= 0 && py < h) {
+                        size_t idx = (py * w + px) * 4;
+                        // Alpha blend white/cyan glow
+                        buffer[idx + 0] = std::min(255, buffer[idx + 0] + 120); // B
+                        buffer[idx + 1] = std::min(255, buffer[idx + 1] + 180); // G
+                        buffer[idx + 2] = std::min(255, buffer[idx + 2] + 200); // R
+                    }
+                }
+            }
+        }
+    }
 
     BITMAPINFO bmi{};
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);

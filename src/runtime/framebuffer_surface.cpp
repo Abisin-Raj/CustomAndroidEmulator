@@ -1,4 +1,5 @@
 #include "framebuffer_surface.h"
+#include <iostream>
 #include <thread>
 #include <cstring>
 #include <algorithm>
@@ -62,10 +63,15 @@ void FramebufferSurface::Rotate90() {
     }
 }
 
-void FramebufferSurface::UpdateFrontBuffer(const uint8_t* rgba_data, size_t size) {
+void FramebufferSurface::UpdateFrontBuffer(const uint8_t* rgba_data, size_t size, uint64_t frame_id, const std::string& sha256) {
     std::lock_guard<std::mutex> lock(buffer_mutex_);
     size_t copy_size = std::min(size, front_buffer_.size());
     std::memcpy(front_buffer_.data(), rgba_data, copy_size);
+    front_frame_id_ = frame_id;
+    front_sha256_ = sha256;
+    if (frame_id > 0 && !sha256.empty()) {
+        std::cout << "[SURFACE] frame=" << frame_id << " sha256=" << sha256 << "\n" << std::flush;
+    }
 }
 
 std::vector<uint8_t> FramebufferSurface::GetBackBuffer() const {
@@ -73,9 +79,21 @@ std::vector<uint8_t> FramebufferSurface::GetBackBuffer() const {
     return back_buffer_;
 }
 
+uint64_t FramebufferSurface::GetBackBufferFrameId() const {
+    std::lock_guard<std::mutex> lock(buffer_mutex_);
+    return back_frame_id_;
+}
+
+std::string FramebufferSurface::GetBackBufferSha256() const {
+    std::lock_guard<std::mutex> lock(buffer_mutex_);
+    return back_sha256_;
+}
+
 void FramebufferSurface::SwapBuffers() {
     std::lock_guard<std::mutex> lock(buffer_mutex_);
     std::swap(front_buffer_, back_buffer_);
+    std::swap(front_frame_id_, back_frame_id_);
+    std::swap(front_sha256_, back_sha256_);
 }
 
 void FramebufferSurface::WaitForVsync() {

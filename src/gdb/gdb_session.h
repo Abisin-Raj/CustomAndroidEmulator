@@ -28,11 +28,13 @@ public:
 
     StopReply Continue();
     StopReply ContinueUntilStop(int max_wait_seconds = 120);
+    bool ContinueAsync();
+    bool Interrupt();
     StopReply Step();
     StopReply StepPastBreakpoint(uint64_t address);
 
-
     BreakpointManager& GetBreakpointManager();
+
 
 private:
     bool SendRaw(const std::string& data);

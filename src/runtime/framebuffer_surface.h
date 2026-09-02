@@ -38,9 +38,11 @@ public:
     void SetOrientation(Orientation orient);
     void Rotate90();
 
-    // Double buffering
-    void UpdateFrontBuffer(const uint8_t* rgba_data, size_t size);
+    // Double buffering with provenance tracking
+    void UpdateFrontBuffer(const uint8_t* rgba_data, size_t size, uint64_t frame_id = 0, const std::string& sha256 = "");
     std::vector<uint8_t> GetBackBuffer() const;
+    uint64_t GetBackBufferFrameId() const;
+    std::string GetBackBufferSha256() const;
     void SwapBuffers();
 
     // VSYNC pacing (60 Hz target = 16.666 ms)
@@ -57,6 +59,10 @@ private:
     mutable std::mutex buffer_mutex_;
     std::vector<uint8_t> front_buffer_;
     std::vector<uint8_t> back_buffer_;
+    uint64_t front_frame_id_{0};
+    uint64_t back_frame_id_{0};
+    std::string front_sha256_{""};
+    std::string back_sha256_{""};
 
     std::chrono::steady_clock::time_point last_vsync_time_;
     std::chrono::steady_clock::time_point next_vsync_target_;
