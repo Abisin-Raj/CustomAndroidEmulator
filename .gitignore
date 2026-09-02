@@ -180,3 +180,4 @@ tools/
 !artifacts/**/*.dts
 !artifacts/**/*.dtb
 !reference/**/*
+boot_ramdisk.gz.orig
