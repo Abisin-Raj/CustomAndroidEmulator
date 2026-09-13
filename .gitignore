@@ -181,3 +181,4 @@ tools/
 !artifacts/**/*.dtb
 !reference/**/*
 boot_ramdisk.gz.orig
+boot_ramdisk.gz.bak_z5u
