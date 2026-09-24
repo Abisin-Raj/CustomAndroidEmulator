@@ -70,12 +70,14 @@ private:
     // Page 1: Dashboard
     QLabel* m_dashTotalRomsLabel = nullptr;
     QLabel* m_dashSummaryText = nullptr;
+    QPushButton* m_dashLaunchBtn = nullptr;
     
     // Page 2: ROMs
     QTableWidget* m_romsTable = nullptr;
     QPushButton* m_launchBtn = nullptr;
     QPushButton* m_removeBtn = nullptr;
     QPushButton* m_infoBtn = nullptr;
+    QPushButton* m_displayLaunchBtn = nullptr;
     
     // Page 3: Settings
     QLineEdit* m_qemuPathLineEdit = nullptr;

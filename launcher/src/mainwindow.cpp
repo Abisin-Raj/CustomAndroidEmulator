@@ -126,6 +126,11 @@ void MainWindow::setupDisplayPage() {
     headerLayout->addWidget(titleLabel);
     headerLayout->addStretch();
 
+    m_displayLaunchBtn = new QPushButton("▶ Launch Android VM", this);
+    m_displayLaunchBtn->setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 6px 16px; border-radius: 4px; } QPushButton:hover { background-color: #2ea44f; }");
+    connect(m_displayLaunchBtn, &QPushButton::clicked, this, &MainWindow::onLaunchClicked);
+    headerLayout->addWidget(m_displayLaunchBtn);
+
     layout->addLayout(headerLayout);
 
     auto* displayContainer = new QHBoxLayout();
@@ -194,6 +199,12 @@ void MainWindow::setupDashboardPage() {
     gridLayout->addWidget(new QLabel("QEMU Emulator Backend (Phase 5 Pipeline Active)", this), 3, 1);
 
     layout->addWidget(infoGroupBox);
+
+    m_dashLaunchBtn = new QPushButton("▶ Launch Android ROM in Emulator Display (Fast Resume)", this);
+    m_dashLaunchBtn->setStyleSheet("QPushButton { background-color: #238636; color: white; font-size: 14px; font-weight: bold; padding: 12px 24px; border-radius: 6px; } QPushButton:hover { background-color: #2ea44f; }");
+    connect(m_dashLaunchBtn, &QPushButton::clicked, this, &MainWindow::onLaunchClicked);
+    layout->addWidget(m_dashLaunchBtn);
+
     layout->addStretch();
     
     m_stackedWidget->addWidget(page);
@@ -274,6 +285,11 @@ void MainWindow::loadRomsList() {
     m_removeBtn->setEnabled(hasRows);
     m_infoBtn->setEnabled(hasRows);
     m_launchBtn->setEnabled(hasRows);
+    if (m_dashLaunchBtn) m_dashLaunchBtn->setEnabled(hasRows);
+    if (m_displayLaunchBtn) m_displayLaunchBtn->setEnabled(hasRows);
+    if (hasRows && m_romsTable->currentRow() < 0) {
+        m_romsTable->selectRow(0);
+    }
 }
 
 void MainWindow::onInstallRomClicked() {
@@ -362,6 +378,10 @@ void MainWindow::onLaunchClicked() {
     }
 
     int row = m_romsTable->currentRow();
+    if (row < 0 && m_romsTable->rowCount() > 0) {
+        row = 0;
+        m_romsTable->selectRow(0);
+    }
     if (row < 0) {
         QMessageBox::warning(this, "No Selection", "Please select a ROM from the table to launch.");
         return;
@@ -394,6 +414,11 @@ void MainWindow::onVmStateChanged(bool running) {
         m_statusLabel->setText("Status: Virtual Machine Active");
         m_launchBtn->setText("Stop VM");
         m_launchBtn->setEnabled(true);
+        if (m_dashLaunchBtn) m_dashLaunchBtn->setText("⏹ Stop Android VM");
+        if (m_displayLaunchBtn) {
+            m_displayLaunchBtn->setText("⏹ Stop VM");
+            m_displayLaunchBtn->setStyleSheet("QPushButton { background-color: #da3633; color: white; font-weight: bold; padding: 6px 16px; border-radius: 4px; } QPushButton:hover { background-color: #f85149; }");
+        }
         m_removeBtn->setEnabled(false);
         m_infoBtn->setEnabled(false);
         m_romsTable->setEnabled(false);
@@ -401,6 +426,11 @@ void MainWindow::onVmStateChanged(bool running) {
     } else {
         m_statusLabel->setText("Status: Ready");
         m_launchBtn->setText("Launch");
+        if (m_dashLaunchBtn) m_dashLaunchBtn->setText("▶ Launch Android ROM in Emulator Display (Fast Resume)");
+        if (m_displayLaunchBtn) {
+            m_displayLaunchBtn->setText("▶ Launch Android VM");
+            m_displayLaunchBtn->setStyleSheet("QPushButton { background-color: #238636; color: white; font-weight: bold; padding: 6px 16px; border-radius: 4px; } QPushButton:hover { background-color: #2ea44f; }");
+        }
         m_romsTable->setEnabled(true);
         
         // Re-enable tabs
