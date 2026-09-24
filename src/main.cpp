@@ -238,7 +238,7 @@ int main(int argc, char* argv[]) {
     std::string session_id = logger.StartSession(
         "PixelExperience_violet-13.0-20240127-0711-OFFICIAL.zip",
         "kernel.img",
-        "virt_spmi_compact.dtb"
+        "virt_spmi_compact_ion.dtb"
     );
     std::cout << "[*] Initialized Boot Session: " << session_id << "\n";
     LOG_PHASE_BEGIN("Phase 17.2: Physical RAMFB Display Integration");
@@ -272,21 +272,19 @@ int main(int argc, char* argv[]) {
 #endif
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
-    // 5. Launch QEMU with RAMFB display and GDB server
+    // 5. Launch QEMU with RAMFB display, eMMC overlay, checkpoint restore, and GDB server
     std::string qemu_cmd = 
         "start /B \"\" \"C:\\Users\\ABISIN RAJ\\Desktop\\Projects\\CustomAndroidQEMU\\build\\qemu-system-aarch64.exe\" "
-        "-M virt,gic-version=3 -cpu cortex-a55 -m 4096 "
-        "-device ramfb -vnc 127.0.0.1:0 "
+        "-L \"C:\\Users\\ABISIN RAJ\\Desktop\\Projects\\CustomAndroidQEMU\\pc-bios\" "
+        "-M virt,gic-version=3 -cpu cortex-a55 -smp 1 -m 4096 "
+        "-device ramfb -display none "
         "-kernel \"C:\\qemu_work\\kernel.img\" "
         "-initrd \"C:\\Users\\ABISIN RAJ\\Desktop\\Projects\\CustomAndroidEmulator\\boot_ramdisk.gz\" "
-        "-dtb \"C:\\qemu_work\\virt_spmi_compact.dtb\" "
-        "-append \"rdinit=/init console=ttyMSM0,115200n8 nokaslr androidboot.hardware=qcom "
-        "androidboot.bootdevice=1d84000.ufshc androidboot.mode=normal "
-        "androidboot.bootmode=normal androidboot.force_normal_boot=1 "
-        "androidboot.selinux=permissive enforcing=0 earlycon=msm_geni_serial,0x880000 "
-        "loglevel=8 ignore_loglevel panic=0\" "
-        "-drive \"file=C:\\Users\\ABISIN RAJ\\Desktop\\Projects\\CustomAndroidEmulator\\build\\launcher\\roms\\PixelExperience_violet-13.0-20240127-0711-OFFICIAL\\system.img,format=raw,if=none,id=sys0,readonly=on\" -device virtio-blk-device,drive=sys0 "
-        "-drive \"file=C:\\Users\\ABISIN RAJ\\Desktop\\Projects\\CustomAndroidEmulator\\build\\launcher\\roms\\PixelExperience_violet-13.0-20240127-0711-OFFICIAL\\vendor.img,format=raw,if=none,id=vnd0,readonly=on\" -device virtio-blk-device,drive=vnd0 "
+        "-dtb \"C:\\qemu_work\\virt_spmi_compact_ion.dtb\" "
+        "-drive \"file=C:\\qemu_work\\emmc_overlay.qcow2,if=sd,format=qcow2,id=emmc0\" "
+        "-append \"init=/init nokaslr norandmaps androidboot.bootdevice=7c4000.sdhci console=ttyAMA0,115200 printk.devkmsg=on androidboot.debug_level=0x4f4c androidboot.selinux=permissive enforcing=0 androidboot.crypto_state=unencrypted androidboot.hardware=qcom androidboot.hardware.platform=sm6150 ro.crypto.state=unencrypted\" "
+        "-loadvm cp02_rtr_token "
+        "-serial \"file:C:\\qemu_work\\sf_console.log\" "
         "-gdb tcp::1294 -S";
 
     logger.Log(Subsystem::QEMU, LogLevel::INFO, "Launching QEMU process: " + qemu_cmd);

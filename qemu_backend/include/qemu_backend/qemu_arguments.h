@@ -30,6 +30,11 @@ struct QemuConfigParameters {
     // Block drives for Android partitions (Phase 11.2)
     std::string systemImagePath;
     std::string vendorImagePath;
+    // eMMC disk image overlay & BIOS
+    std::string biosPath = "C:/Users/ABISIN RAJ/Desktop/Projects/CustomAndroidQEMU/pc-bios";
+    std::string smp = "1";
+    std::string diskImagePath;
+    std::string loadVmSnapshot;
 };
 
 class QemuArguments {

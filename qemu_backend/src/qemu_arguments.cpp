@@ -4,8 +4,15 @@
 QStringList QemuArguments::build(const QemuConfigParameters& params) {
     QStringList args;
 
+    if (!params.biosPath.empty()) {
+        args << "-L" << QString::fromStdString(params.biosPath);
+    }
+
     args << "-M" << QString::fromStdString(params.machine);
     args << "-cpu" << QString::fromStdString(params.cpu);
+    if (!params.smp.empty()) {
+        args << "-smp" << QString::fromStdString(params.smp);
+    }
     args << "-m" << QString::fromStdString(params.memory);
 
     if (params.nographic) {
@@ -69,6 +76,16 @@ QStringList QemuArguments::build(const QemuConfigParameters& params) {
     if (!params.vendorImagePath.empty()) {
         args << "-drive" << QString("file=%1,format=raw,if=none,id=vnd0,readonly=on").arg(QString::fromStdString(params.vendorImagePath))
              << "-device" << "virtio-blk-device,drive=vnd0";
+    }
+
+    // eMMC SDHCI drive overlay
+    if (!params.diskImagePath.empty()) {
+        args << "-drive" << QString("file=%1,if=sd,format=qcow2,id=emmc0").arg(QString::fromStdString(params.diskImagePath));
+    }
+
+    // Instant checkpoint resume
+    if (!params.loadVmSnapshot.empty()) {
+        args << "-loadvm" << QString::fromStdString(params.loadVmSnapshot);
     }
 
     if (!params.extraArgs.empty()) {

@@ -205,6 +205,9 @@ bool VmManager::startVm(const std::string& romName, const std::filesystem::path&
     bet::BetSystem::instance().startSession(romName, "5.4.x", "1.0.0");
 
     // 6. Spawn QEMU
+#if defined(_WIN32) || defined(_WIN64)
+    system("powershell -Command \"Stop-Process -Name 'qemu-system-aarch64' -Force -ErrorAction SilentlyContinue\"");
+#endif
     m_timer.start();
     if (!m_launcher->start(qemuPath, args)) {
         LOG_QEMU_ERROR("VmManager: Process launch failed. Cleaning up temporary folders...");
@@ -370,7 +373,7 @@ void VmManager::sendHardwareKey(HardwareKey key, bool pressed) {
             }
         }
 
-        LOG_INFO("VmManager: HardwareKey [{}] -> Linux EV_KEY {} {} (tcp={})",
+        LOG_QEMU_INFO("VmManager: HardwareKey [{}] -> Linux EV_KEY {} {} (tcp={})",
             keyName, linuxCode, pressed ? "PRESS" : "RELEASE", sentViaTcp);
     }
 }

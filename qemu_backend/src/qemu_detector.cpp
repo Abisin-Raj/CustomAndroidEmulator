@@ -15,6 +15,11 @@ std::string QemuDetector::detectQemuPath() {
     }
 
     // 2. Check custom compiled QEMU binary
+    std::string customQemuPath = "C:\\Users\\ABISIN RAJ\\Desktop\\Projects\\CustomAndroidQEMU\\build\\qemu-system-aarch64.exe";
+    if (std::filesystem::exists(customQemuPath)) {
+        LOG_QEMU_INFO("QemuDetector: Prioritizing CustomAndroidQEMU: {}", customQemuPath);
+        return customQemuPath;
+    }
     std::string customBuildPath = "C:\\qemu_source\\build\\qemu-system-aarch64.exe";
     if (std::filesystem::exists(customBuildPath)) {
         LOG_QEMU_INFO("QemuDetector: Prioritizing custom compiled QEMU: {}", customBuildPath);
