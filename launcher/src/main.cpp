@@ -5,7 +5,7 @@
 int main(int argc, char* argv[]) {
     // Initialize shared logging system
     core::initLogger();
-    LOG_INFO("Initializing launcher UI...");
+    LOG_LAUNCHER_INFO("Initializing launcher UI...");
 
     QApplication app(argc, argv);
 

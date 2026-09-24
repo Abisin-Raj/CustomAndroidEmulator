@@ -45,7 +45,7 @@ void DisplayViewport::updateFramebuffer(int width, int height, int stride, const
     m_frameCount++;
 
     if (m_frameCount % 60 == 0 || m_frameCount == 1) {
-        LOG_INFO("DisplayViewport: Frame #{} rendered [{}x{} RGBX_8888]", m_frameCount, width, height);
+        LOG_LAUNCHER_INFO("DisplayViewport: Frame #{} rendered [{}x{} RGBX_8888]", m_frameCount, width, height);
     }
 
     update(); // Trigger repaint
@@ -114,7 +114,7 @@ void DisplayViewport::keyPressEvent(QKeyEvent* event) {
 
     uint32_t keysym = qtKeyToKeysym(k);
     if (keysym != 0) {
-        LOG_INFO("DisplayViewport: Key press -> keysym 0x{:04x}", keysym);
+        LOG_LAUNCHER_INFO("DisplayViewport: Key press -> keysym 0x{:04x}", keysym);
         emit keyEvent(keysym, true);
         event->accept();
         return;
@@ -140,7 +140,7 @@ void DisplayViewport::keyReleaseEvent(QKeyEvent* event) {
 
     uint32_t keysym = qtKeyToKeysym(k);
     if (keysym != 0) {
-        LOG_INFO("DisplayViewport: Key release -> keysym 0x{:04x}", keysym);
+        LOG_LAUNCHER_INFO("DisplayViewport: Key release -> keysym 0x{:04x}", keysym);
         emit keyEvent(keysym, false);
         event->accept();
         return;
