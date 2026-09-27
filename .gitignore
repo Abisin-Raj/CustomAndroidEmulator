@@ -182,3 +182,14 @@ tools/
 !reference/**/*
 boot_ramdisk.gz.orig
 boot_ramdisk.gz.bak_z5u
+.obsidian/app.json
+.obsidian/appearance.json
+.obsidian/workspace.json
+.obsidian/graph.json
+.obsidian/core-plugins.json
+scratch/build_historical_archive.py
+scratch/audit_runs.py
+docs/phase1_6_kgsl_vfs_verification.md
+trace_graphics_blocker_results.md
+kgsl_device_abi_spec.md
+device_selection_phase14.md
