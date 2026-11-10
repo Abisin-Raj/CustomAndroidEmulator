@@ -5,6 +5,8 @@ add_library(emulator_runtime STATIC
     synthetic_pattern_pixel_source.cpp
     ramfb_bootanim_pixel_source.h
     ramfb_bootanim_pixel_source.cpp
+    android_drm_pixel_source.h
+    android_drm_pixel_source.cpp
     display_pipeline.h
     display_pipeline.cpp
     framebuffer_surface.h

@@ -24,10 +24,12 @@ target_link_libraries(execute_test_runner PRIVATE
     Qt6::Network
 )
 
-add_custom_target(run_phase73_vm
-    COMMAND execute_test_runner --run-real-vm
-    DEPENDS execute_test_runner
-    COMMENT "Executing Phase 7.3 Real Android ROM VM Boot Trace"
+add_executable(test_android_drm_pixel_source
+    test_android_drm_pixel_source.cpp
+)
+
+target_link_libraries(test_android_drm_pixel_source PRIVATE
+    emulator_runtime
 )
 
 
